@@ -1,85 +1,273 @@
 import os
 import time
 import glob
+import re
+import shutil
+import unicodedata
+from datetime import date
+from pathlib import Path
+
 from selenium import webdriver
-from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
 
-def baixar_relatorio():
-    print("Iniciando o robô de extração do GETS...")
+# =====================================================================
+# CONFIGURAÇÕES GERAIS E DATAS
+# =====================================================================
+GETS_URL = "https://gets.ceb.unicamp.br/nec/view"
+WAIT = 15
+TIMEOUT_DOWNLOAD = 120
+
+MESES_PT = {
+    1: "janeiro",  2: "fevereiro", 3: "março",    4: "abril",
+    5: "maio",     6: "junho",     7: "julho",    8: "agosto",
+    9: "setembro", 10: "outubro",  11: "novembro", 12: "dezembro",
+}
+
+def primeiro_dia_mes():
+    hoje = date.today()
+    return f"01/{hoje.month:02d}/{hoje.year}"
+
+def primeiro_dia_ano():
+    hoje = date.today()
+    return f"01/01/{hoje.year}"
+
+def hoje_str():
+    hoje = date.today()
+    return f"{hoje.day:02d}/{hoje.month:02d}/{hoje.year}"
+
+# =====================================================================
+# LÓGICA DE DIRETÓRIOS E RENOMEAÇÃO (GITHUB ACTIONS)
+# =====================================================================
+PASTA_BASE = Path(os.getcwd()) / "planilhas_gets"
+PASTA_TEMP = PASTA_BASE / "temp_downloads"
+
+PASTAS_DESTINO = {
+    "encerradas":   PASTA_BASE / "01.OS_Encerradas",
+    "pendentes":    PASTA_BASE / "02.OS_Pendentes",
+    "atividades":   PASTA_BASE / "03.Atividades",
+    "inventario":   PASTA_BASE / "04.Inventário",
+    "atendimento":  PASTA_BASE / "05.Atendimento de OS",
+    "agendamentos": PASTA_BASE / "06.Agendamento MP"
+}
+
+# Garante que a estrutura exista no servidor
+PASTA_TEMP.mkdir(parents=True, exist_ok=True)
+for p in PASTAS_DESTINO.values():
+    p.mkdir(parents=True, exist_ok=True)
+
+def limpar_pasta_temp():
+    """Remove qualquer arquivo residual na pasta temporária antes do próximo download"""
+    for f in PASTA_TEMP.glob("*"):
+        try: f.unlink()
+        except: pass
+
+def remover_acentos(texto: str) -> str:
+    return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn').lower()
+
+def calcular_nome_atividades(pasta: Path) -> str:
+    """Calcula o nome do relatório de horas com a regra de numeração sequencial"""
+    hoje = date.today()
+    mes_nome = MESES_PT[hoje.month]
+    sufixo_normalizado = remover_acentos(f"horastrabalhadas_{mes_nome}{hoje.year}")
+
+    todos = list(pasta.glob("*.xlsx"))
+    for arq in todos:
+        if sufixo_normalizado in remover_acentos(arq.stem):
+            return arq.name # Sobrescreve o do mês atual
+
+    maior_nn = 0
+    for arq in todos:
+        match = re.match(r'^(\d+)\.', arq.name)
+        if match:
+            maior_nn = max(maior_nn, int(match.group(1)))
     
-    # Garante a criação do caminho absoluto da pasta
-    pasta_planilhas = os.path.abspath(os.path.join(os.getcwd(), "planilhas_gets"))
-    os.makedirs(pasta_planilhas, exist_ok=True)
+    return f"{maior_nn + 1:02d}.horasTrabalhadas_{mes_nome}{hoje.year}.xlsx"
+
+# =====================================================================
+# INTERAÇÕES DO SELENIUM
+# =====================================================================
+def preencher_data(driver, campo_id, valor):
+    el = WebDriverWait(driver, WAIT).until(EC.presence_of_element_located((By.ID, campo_id)))
+    driver.execute_script("arguments[0].removeAttribute('readonly')", el)
+    driver.execute_script("arguments[0].value = '';", el)
+    el.click()
+    el.send_keys(valor)
+    el.send_keys(Keys.TAB)
+    time.sleep(0.5)
+
+def clicar_radio(driver, name, value):
+    el = driver.find_element(By.CSS_SELECTOR, f"input[name='{name}'][value='{value}']")
+    driver.execute_script("arguments[0].click();", el)
+    time.sleep(0.5)
+
+def aguardar_dialog_download(driver):
+    try:
+        btn = WebDriverWait(driver, 15).until(
+            EC.element_to_be_clickable((By.XPATH, "//button[.//span[contains(@class,'fa-download')]] | //span[contains(@class,'ui-button-text') and text()='Baixar']/parent::button"))
+        )
+        driver.execute_script("arguments[0].click();", btn)
+        time.sleep(2)
+    except:
+        pass
+
+def processar_download(chave_destino):
+    """Aguarda o fim do download no Temp, renomeia se necessário e move para a pasta final"""
+    print(f"   Aguardando download do relatório: {chave_destino}...")
+    inicio = time.time()
+    arquivo_baixado = None
     
-    chrome_options = Options()
-    chrome_options.add_argument("--headless=new") # Força a nova engine headless do Chrome
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
+    while time.time() - inicio < TIMEOUT_DOWNLOAD:
+        arquivos = [f for f in PASTA_TEMP.glob("*.xlsx") if not f.name.endswith(".crdownload")]
+        if arquivos:
+            arquivo_baixado = max(arquivos, key=lambda f: f.stat().st_mtime)
+            break
+        time.sleep(2)
     
-    prefs = {
-        "download.default_directory": pasta_planilhas,
+    if not arquivo_baixado:
+        raise RuntimeError(f"Falha de timeout ao baixar o relatório: {chave_destino}")
+
+    # Lógica de renomeação
+    if chave_destino == "atividades":
+        nome_final = calcular_nome_atividades(PASTAS_DESTINO["atividades"])
+    else:
+        nome_final = arquivo_baixado.name
+        
+    destino_final = PASTAS_DESTINO[chave_destino] / nome_final
+    
+    # Move e substitui
+    shutil.move(str(arquivo_baixado), str(destino_final))
+    print(f"   ✅ Arquivo salvo em: {destino_final.relative_to(PASTA_BASE)}")
+
+# =====================================================================
+# FLUXO PRINCIPAL DO ROBÔ
+# =====================================================================
+def executar_robo():
+    print("Iniciando o Super Robô de Extração do GETS (GitHub Actions)...")
+    
+    opts = Options()
+    opts.add_argument("--headless=new")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
+    opts.add_argument("--window-size=1920,1080")
+    
+    # Configura o Chrome para baixar tudo sempre na PASTA_TEMP
+    opts.add_experimental_option("prefs", {
+        "download.default_directory": str(PASTA_TEMP),
         "download.prompt_for_download": False,
-        "directory_upgrade": True,
-        "safebrowsing.enabled": True
-    }
-    chrome_options.add_experimental_option("prefs", prefs)
-    
-    driver = webdriver.Chrome(options=chrome_options)
-    
-    # COMANDO CRÍTICO: Força o Chrome Headless no Linux a permitir downloads
-    driver.execute_cdp_cmd("Page.setDownloadBehavior", {
-        "behavior": "allow",
-        "downloadPath": pasta_planilhas
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True,
     })
     
-    wait = WebDriverWait(driver, 20)
+    driver = webdriver.Chrome(options=opts)
+    wait = WebDriverWait(driver, WAIT)
+    
+    # Força permissão de download no headless
+    driver.execute_cdp_cmd("Page.setDownloadBehavior", {"behavior": "allow", "downloadPath": str(PASTA_TEMP)})
 
     try:
-        print("Acessando página de login...")
-        driver.get("https://gets.ceb.unicamp.br/nec/view/inicio/index.jsf")
-        
-        usuario = os.environ.get('GETS_USER') 
+        # --- LOGIN ---
+        print("\nRealizando Login...")
+        driver.get(f"{GETS_URL}/inicio/index.jsf")
+        usuario = os.environ.get('GETS_USER')
         senha = os.environ.get('GETS_PASS')
-
-        wait.until(EC.presence_of_element_located((By.NAME, "j_username"))).send_keys(usuario)
-        driver.find_element(By.NAME, "j_password").send_keys(senha)
-        driver.find_element(By.XPATH, "//input[@value='Entrar']").click()
-        time.sleep(5) 
         
-        print("Navegando para o relatório de agendamentos...")
-        driver.get("https://gets.ceb.unicamp.br/nec/view/formrelatorios/agendamentos.jsf")
-        time.sleep(3)
+        if not usuario or not senha:
+            raise ValueError("As credenciais GETS_USER ou GETS_PASS não foram encontradas no ambiente.")
 
-        print("Limpando os campos de data...")
+        wait.until(EC.presence_of_element_located((By.ID, "j_username"))).send_keys(usuario)
+        driver.find_element(By.NAME, "j_password").send_keys(senha)
+        driver.find_element(By.CSS_SELECTOR, "input[type='submit']").click()
+        
+        wait.until(EC.presence_of_element_located((By.ID, "menu")))
+        time.sleep(2)
+        print("Login bem-sucedido.")
+
+        # --- 1. OS ENCERRADAS ---
+        limpar_pasta_temp()
+        print("\nExtraindo: 01. OS Encerradas...")
+        driver.get(f"{GETS_URL}/formrelatorios/ordens_encerradas.jsf")
+        time.sleep(3)
+        preencher_data(driver, "fm1:dataEncerramentoInicial_input", primeiro_dia_mes())
+        preencher_data(driver, "fm1:dataEncerramentoFinal_input", hoje_str())
+        driver.find_element(By.ID, "fm1:j_idt139").click()
+        aguardar_dialog_download(driver)
+        processar_download("encerradas")
+
+        # --- 2. OS PENDENTES ---
+        limpar_pasta_temp()
+        print("\nExtraindo: 02. OS Pendentes...")
+        driver.get(f"{GETS_URL}/formrelatorios/ordens_pendentes.jsf")
+        time.sleep(3)
+        preencher_data(driver, "fm1:j_idt76_input", "01/01/2023")
+        preencher_data(driver, "fm1:j_idt79_input", hoje_str())
+        clicar_radio(driver, "fm1:options5", "1")
+        driver.find_element(By.ID, "fm1:j_idt161").click()
+        aguardar_dialog_download(driver)
+        processar_download("pendentes")
+
+        # --- 3. ATIVIDADES (HORAS TRABALHADAS) ---
+        limpar_pasta_temp()
+        print("\nExtraindo: 03. Atividades (Horas Trabalhadas)...")
+        driver.get(f"{GETS_URL}/formrelatorios/horas_trabalhadas.jsf")
+        time.sleep(3)
+        preencher_data(driver, "fm1:dtInicio_input", primeiro_dia_mes())
+        preencher_data(driver, "fm1:dtInicioAte_input", hoje_str())
+        preencher_data(driver, "fm1:dtTermino_input", primeiro_dia_mes())
+        preencher_data(driver, "fm1:dtTerminoAte_input", hoje_str())
+        driver.find_element(By.ID, "fm1:j_idt135").click()
+        aguardar_dialog_download(driver)
+        processar_download("atividades")
+
+        # --- 4. INVENTÁRIO ---
+        limpar_pasta_temp()
+        print("\nExtraindo: 04. Inventário...")
+        driver.get(f"{GETS_URL}/formrelatorios/listaeqptos.jsf")
+        time.sleep(3)
+        clicar_radio(driver, "fm1:optClasse", "1")
+        clicar_radio(driver, "fm1:optDesativado", "0")
+        time.sleep(1)
+        clicar_radio(driver, "fm1:optIndicadores", "true")
+        driver.find_element(By.ID, "fm1:j_idt198").click()
+        aguardar_dialog_download(driver)
+        processar_download("inventario")
+
+        # --- 5. ATENDIMENTO DE OS ---
+        limpar_pasta_temp()
+        print("\nExtraindo: 05. Atendimento de OS...")
+        driver.get(f"{GETS_URL}/formrelatorios/atendimento_ordens_servico.jsf")
+        time.sleep(3)
+        preencher_data(driver, "fm1:dataInicial_input", primeiro_dia_ano())
+        preencher_data(driver, "fm1:dataFinal_input", hoje_str())
+        preencher_data(driver, "fm1:dataEncerramentoInicial_input", primeiro_dia_ano())
+        preencher_data(driver, "fm1:dataEncerramentoFinal_input", hoje_str())
+        driver.find_element(By.ID, "fm1:j_idt148").click()
+        aguardar_dialog_download(driver)
+        processar_download("atendimento")
+
+        # --- 6. AGENDAMENTOS MP ---
+        limpar_pasta_temp()
+        print("\nExtraindo: 06. Agendamentos MP...")
+        driver.get(f"{GETS_URL}/formrelatorios/agendamentos.jsf")
+        time.sleep(3)
         driver.execute_script("document.getElementById('fm1:j_idt50_input').value = '';")
         driver.execute_script("document.getElementById('fm1:j_idt53_input').value = '';")
         time.sleep(1)
-        
-        print("Clicando em Gerar Planilha...")
-        botao_gerar = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[text()='Gerar Planilha']/parent::button | //span[text()='Gerar Planilha']")))
-        botao_gerar.click()
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//span[text()='Gerar Planilha']/parent::button | //span[text()='Gerar Planilha']"))).click()
+        aguardar_dialog_download(driver)
+        processar_download("agendamentos")
 
-        print("Aguardando a conclusão do download...")
-        # Loop de 15 segundos checando se o arquivo de fato surgiu na pasta
-        for i in range(15):
-            time.sleep(1)
-            arquivos = glob.glob(os.path.join(pasta_planilhas, "*.xlsx"))
-            if arquivos and not any(f.endswith('.crdownload') for f in arquivos):
-                break
+        print("\n🚀 MARATONA DE EXTRAÇÃO CONCLUÍDA COM SUCESSO!")
 
-        arquivos_baixados = glob.glob(os.path.join(pasta_planilhas, "*.xlsx"))
-        if arquivos_baixados:
-            arquivo_final = max(arquivos_baixados, key=os.path.getctime)
-            print(f"Sucesso absoluto! Planilha salva em: {arquivo_final}")
-        else:
-            # Levanta um erro real para fazer o GitHub Actions parar e avisar se falhar
-            raise RuntimeError("O botão foi clicado, mas nenhum arquivo .xlsx foi gerado na pasta.")
-            
     finally:
         driver.quit()
+        limpar_pasta_temp()
+        try: PASTA_TEMP.rmdir()
+        except: pass
 
 if __name__ == "__main__":
-    baixar_relatorio()
+    executar_robo()
