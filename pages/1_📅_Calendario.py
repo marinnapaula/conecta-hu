@@ -102,14 +102,15 @@ with col_titulo:
     st.markdown("**Gestão e Acompanhamento de Manutenções de EMH | HU-UNIVASF**")
 
 with col_logo1:
-    st.markdown("<div class='logo-container'>", unsafe_allow_html=True)
-    try: st.image("logohubrasil.png", width=200) 
+    try: 
+        # Tiramos o use_container_width e forçamos a largura em pixels (ex: 200)
+        st.image("logohubrasil.png", width=200) 
     except: pass
-    st.markdown("</div>", unsafe_allow_html=True)
-    
+
 with col_logo2:
-    st.markdown("<div class='logo-container'>", unsafe_allow_html=True)
-    try: st.image("logounivasf.png", width=140) 
+    try: 
+        # Forçamos a largura da Univasf a ser menor para equilibrar a altura (ex: 130)
+        st.image("logounivasf.png", width=140) 
     except: pass
     st.markdown("</div>", unsafe_allow_html=True)
 
