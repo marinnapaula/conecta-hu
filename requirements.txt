@@ -1,4 +1,12 @@
+# --- Interface e Web App (Conecta) ---
 streamlit
-pandas
 streamlit-calendar
+
+# --- Motor de Dados e BI ---
+pandas
 openpyxl
+plotly
+
+# --- Robô de Extração GETS (Automação) ---
+selenium
+webdriver-manager
