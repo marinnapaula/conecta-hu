@@ -1,30 +1,27 @@
 import streamlit as st
 
 # =====================================================================
-# 1. CONFIGURAÇÃO DA PÁGINA (TELA CHEIA)
+# 1. CONFIGURAÇÃO DA PÁGINA (ÍCONE MATERIAL NATIVO)
 # =====================================================================
 st.set_page_config(
     page_title="Conecta HU-UNIVASF",
-    page_icon="🏠",
+    page_icon=":material/home:", 
     layout="wide",
-    initial_sidebar_state="collapsed" # Esconde a barra lateral na Home
+    initial_sidebar_state="collapsed" 
 )
 
 # =====================================================================
-# 2. INJEÇÃO DE CSS (GRADIENTE E BOTÕES QUADRADOS)
+# 2. INJEÇÃO DE CSS (CARDS QUADRADOS COM ÍCONES GRANDES)
 # =====================================================================
 st.markdown("""
     <style>
-    /* Ocultar elementos padrão do Streamlit para visual mais limpo */
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Fundo Gradiente idêntico ao do Power BI */
     .stApp {
         background: linear-gradient(135deg, #A4E5D9 0%, #F6E885 50%, #F5B08C 100%);
     }
 
-    /* Centralizar textos */
     .center-title {
         text-align: center;
         color: #154899;
@@ -50,17 +47,17 @@ st.markdown("""
         border: 2px solid rgba(255, 255, 255, 0.6);
         border-radius: 15px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        height: 130px;
+        height: 140px; /* Leve aumento para o ícone novo */
         width: 100%;
         color: #154899;
         transition: all 0.3s ease;
         display: flex;
-        flex-direction: column;
+        flex-direction: column; /* Empilha ícone e texto */
         align-items: center;
         justify-content: center;
+        gap: 8px; /* Espaço entre ícone e texto */
     }
     
-    /* Efeito de Hover (passar o mouse) */
     div[data-testid="stButton"] > button:hover {
         background: rgba(255, 255, 255, 0.9);
         transform: translateY(-5px);
@@ -68,12 +65,15 @@ st.markdown("""
         box-shadow: 0 8px 15px rgba(0,0,0,0.1);
     }
     
-    /* Permite que o texto do botão quebre linha (\n) e centralize */
+    /* Aumentar o tamanho do ícone nativo do Material Symbols */
+    div[data-testid="stButton"] > button span[data-testid="stIconMaterial"] {
+        font-size: 45px !important;
+    }
+    
+    /* Ajuste da fonte do texto do botão */
     div[data-testid="stButton"] > button > div > p {
-        font-size: 15px;
+        font-size: 14px;
         font-weight: 700;
-        white-space: pre-wrap; 
-        text-align: center;
         margin: 0;
     }
     </style>
@@ -88,46 +88,41 @@ with col_logo_top:
     try: st.image("logounivasf.png", use_container_width=True)
     except: pass
 
-st.markdown("<div class='center-title'>⚙️<br>CONECTA HU-UNIVASF</div>", unsafe_allow_html=True)
+st.markdown("<div class='center-title'><span class='material-symbols-rounded' style='font-size: 60px;'>settings_heart</span><br>CONECTA HU-UNIVASF</div>", unsafe_allow_html=True)
 
 # =====================================================================
 # 4. MENU DE NAVEGAÇÃO HORIZONTAL (7 CARDS)
 # =====================================================================
-# Criamos 7 colunas exatas para acomodar os botões da sua imagem
 c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
 
-# Os botões usam \n para colocar o ícone em cima e o texto embaixo
-# A função st.switch_page faz a navegação invisível e instantânea para a pasta pages/
-
+# Usando ícones nativos do Material Symbols e as novas rotas sem emojis
 with c1:
-    if st.button("📊\nDASHBOARD", use_container_width=True):
-        st.switch_page("pages/2_📊_Dashboard_Geral.py")
+    if st.button("DASHBOARD", icon=":material/bar_chart:", use_container_width=True):
+        st.switch_page("pages/2_Dashboard_Geral.py")
         
 with c2:
-    if st.button("🕰️\nHISTÓRICO", use_container_width=True):
-        st.switch_page("pages/5_🕰️_Historico.py")
+    if st.button("HISTÓRICO", icon=":material/manage_search:", use_container_width=True):
+        st.switch_page("pages/5_Historico.py")
         
 with c3:
-    if st.button("🚨\nOS PENDENTES", use_container_width=True):
-        st.switch_page("pages/3_🚨_OS_Pendentes.py")
+    if st.button("OS PENDENTES", icon=":material/notifications_active:", use_container_width=True):
+        st.switch_page("pages/3_OS_Pendentes.py")
         
 with c4:
-    # Substituí a produtividade pelo nosso calendário turbinado
-    if st.button("📅\nCALENDÁRIO", use_container_width=True):
-        st.switch_page("pages/1_📅_Calendario.py")
+    if st.button("CALENDÁRIO", icon=":material/calendar_month:", use_container_width=True):
+        st.switch_page("pages/1_Calendario.py")
         
 with c5:
-    if st.button("🗺️\nMAPA DE CALOR", use_container_width=True):
-        st.switch_page("pages/4_🗺️_Mapa_do_Parque.py")
+    if st.button("MAPA DE CALOR", icon=":material/map:", use_container_width=True):
+        st.switch_page("pages/4_Mapa_do_Parque.py")
         
 with c6:
-    if st.button("⏳\nIDADE PARQUE", use_container_width=True):
+    if st.button("IDADE PARQUE", icon=":material/hourglass_top:", use_container_width=True):
         st.toast("Módulo em desenvolvimento! Em breve.", icon="🚧")
         
 with c7:
-    if st.button("🖥️\nMONITORAMENTO", use_container_width=True):
+    if st.button("MONITORAMENTO", icon=":material/monitor_heart:", use_container_width=True):
         st.toast("Módulo em desenvolvimento! Em breve.", icon="🚧")
-
 
 # =====================================================================
 # 5. RODAPÉ (TEXTO E LOGO INFERIOR)
