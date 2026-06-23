@@ -1,7 +1,7 @@
 import streamlit as st
 
 # =====================================================================
-# 1. CONFIGURAÇÃO DA PÁGINA (ÍCONE MATERIAL NATIVO)
+# 1. CONFIGURAÇÃO DA PÁGINA
 # =====================================================================
 st.set_page_config(
     page_title="Conecta HU-UNIVASF",
@@ -11,25 +11,32 @@ st.set_page_config(
 )
 
 # =====================================================================
-# 2. INJEÇÃO DE CSS (CARDS QUADRADOS COM ÍCONES GRANDES)
+# 2. INJEÇÃO DE CSS (PROPORÇÕES REFINADAS E FONTES)
 # =====================================================================
 st.markdown("""
     <style>
+    /* Importação OBRIGATÓRIA para o ícone superior funcionar e fonte Montserrat */
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0');
+
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
     .stApp {
         background: linear-gradient(135deg, #A4E5D9 0%, #F6E885 50%, #F5B08C 100%);
+        font-family: 'Montserrat', sans-serif !important;
     }
 
+    /* Título principal mais elegante e proporcional */
     .center-title {
         text-align: center;
         color: #154899;
         font-weight: 800;
         font-family: 'Montserrat', sans-serif;
-        font-size: 3.5rem;
-        margin-top: 10px;
-        margin-bottom: 40px;
+        font-size: 2.8rem; 
+        margin-top: 5px;
+        margin-bottom: 35px;
+        line-height: 1.2;
     }
     
     .center-subtitle {
@@ -37,50 +44,52 @@ st.markdown("""
         color: #154899;
         font-weight: 500;
         letter-spacing: 1px;
-        margin-top: 40px;
+        margin-top: 50px;
         margin-bottom: 30px;
+        font-size: 1.1rem;
     }
 
-    /* Transformar os botões do Streamlit em Cards Estilizados */
+    /* Cards Estilizados e Redimensionados */
     div[data-testid="stButton"] > button {
         background: rgba(255, 255, 255, 0.45);
         border: 2px solid rgba(255, 255, 255, 0.6);
-        border-radius: 15px;
+        border-radius: 12px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        height: 140px; /* Leve aumento para o ícone novo */
+        height: 120px; /* Mais enxuto */
         width: 100%;
         color: #154899;
         transition: all 0.3s ease;
         display: flex;
-        flex-direction: column; /* Empilha ícone e texto */
+        flex-direction: column; 
         align-items: center;
         justify-content: center;
-        gap: 8px; /* Espaço entre ícone e texto */
+        gap: 4px; /* Espaço sutil entre ícone e texto */
     }
     
     div[data-testid="stButton"] > button:hover {
-        background: rgba(255, 255, 255, 0.9);
-        transform: translateY(-5px);
+        background: rgba(255, 255, 255, 0.95);
+        transform: translateY(-4px);
         border-color: #154899;
         box-shadow: 0 8px 15px rgba(0,0,0,0.1);
     }
     
-    /* Aumentar o tamanho do ícone nativo do Material Symbols */
+    /* Tamanho do ícone do botão equilibrado */
     div[data-testid="stButton"] > button span[data-testid="stIconMaterial"] {
-        font-size: 45px !important;
+        font-size: 38px !important; 
     }
     
-    /* Ajuste da fonte do texto do botão */
+    /* Fonte do botão mais moderna e legível */
     div[data-testid="stButton"] > button > div > p {
-        font-size: 14px;
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
         margin: 0;
     }
     </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 3. CABEÇALHO (LOGO SUPERIOR)
+# 3. CABEÇALHO (LOGO SUPERIOR E TÍTULO)
 # =====================================================================
 st.markdown("<br>", unsafe_allow_html=True)
 col_v1, col_logo_top, col_v2 = st.columns([4, 2, 4])
@@ -88,14 +97,14 @@ with col_logo_top:
     try: st.image("logounivasf.png", use_container_width=True)
     except: pass
 
-st.markdown("<div class='center-title'><span class='material-symbols-rounded' style='font-size: 60px;'>settings_heart</span><br>CONECTA HU-UNIVASF</div>", unsafe_allow_html=True)
+# O ícone superior agora vai renderizar perfeitamente
+st.markdown("<div class='center-title'><span class='material-symbols-rounded' style='font-size: 50px; color: #154899;'>settings_heart</span><br>CONECTA HU-UNIVASF</div>", unsafe_allow_html=True)
 
 # =====================================================================
 # 4. MENU DE NAVEGAÇÃO HORIZONTAL (7 CARDS)
 # =====================================================================
 c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
 
-# Usando ícones nativos do Material Symbols e as novas rotas sem emojis
 with c1:
     if st.button("DASHBOARD", icon=":material/bar_chart:", use_container_width=True):
         st.switch_page("pages/2_Dashboard_Geral.py")
