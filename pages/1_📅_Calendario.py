@@ -132,8 +132,8 @@ st.markdown("""
 # =====================================================================
 # 4. CABEÇALHO (HEAD) E BARRA LATERAL LIMPA
 # =====================================================================
-# Cria 3 colunas no topo da página. A primeira é grande (para empurrar as logos pra direita)
-col_vazia, col_logo1, col_logo2 = st.columns([6, 1.5, 1.5])
+# Aumentamos a proporção da coluna vazia para "esmagar" suavemente as logos
+col_vazia, col_logo1, col_logo2 = st.columns([8, 0.8, 1.2])
 
 with col_logo1:
     try: st.image("logohubrasil.png", use_container_width=True)
