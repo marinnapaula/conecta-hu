@@ -132,8 +132,9 @@ st.markdown("""
 # =====================================================================
 # 4. CABEÇALHO (HEAD) E BARRA LATERAL LIMPA
 # =====================================================================
-# Aumentamos a proporção da coluna vazia para "esmagar" suavemente as logos
-col_vazia, col_logo1, col_logo2 = st.columns([8, 0.8, 1.2])
+# Ajuste fino de proporção: 
+# 8.5 para o vazio, 1.2 para HUBRASIL (para crescer), 0.8 para UNIVASF (para encolher)
+col_vazia, col_logo1, col_logo2 = st.columns([8.5, 1.2, 0.8])
 
 with col_logo1:
     try: st.image("logohubrasil.png", use_container_width=True)
