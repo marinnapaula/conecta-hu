@@ -132,15 +132,19 @@ st.markdown("""
 # =====================================================================
 # 4. CABEÇALHO (HEAD) E BARRA LATERAL LIMPA
 # =====================================================================
-# Ajuste fino de proporção: 
-# 8.5 para o vazio, 1.2 para HUBRASIL (para crescer), 0.8 para UNIVASF (para encolher)
-col_vazia, col_logo1, col_logo2 = st.columns([8.5, 1.2, 0.8])
+# Deixamos as colunas das logos com um espaço mais folgado
+col_vazia, col_logo1, col_logo2 = st.columns([7.5, 1.2, 1.3])
 
 with col_logo1:
-    try: st.image("logohubrasil.png", use_container_width=True)
+    try: 
+        # Tiramos o use_container_width e forçamos a largura em pixels (ex: 200)
+        st.image("logohubrasil.png", width=200) 
     except: pass
+
 with col_logo2:
-    try: st.image("logounivasf.png", use_container_width=True)
+    try: 
+        # Forçamos a largura da Univasf a ser menor para equilibrar a altura (ex: 130)
+        st.image("logounivasf.png", width=140) 
     except: pass
 
 # Agora a barra lateral fica focada apenas na operação
