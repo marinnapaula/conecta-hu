@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import glob
 from datetime import datetime
+import numpy as np
 
 # =====================================================================
 # 1. CONFIGURAÇÃO DA PÁGINA
@@ -14,9 +15,9 @@ st.markdown("**Acompanhamento tático do tempo de fila e criticidade dos equipam
 st.markdown("---")
 
 # =====================================================================
-# 2. FUNÇÃO DE LEITURA DOS DADOS
+# 2. FUNÇÃO DE LEITURA E TRATAMENTO DOS DADOS
 # =====================================================================
-@st.cache_data(ttl=600) # Atualiza a cada 10 minutos se houver arquivo novo
+@st.cache_data(ttl=600) 
 def carregar_fpendencias():
     caminho = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
     arquivos = glob.glob(os.path.join(caminho, "*.xlsx"))
@@ -30,13 +31,17 @@ def carregar_fpendencias():
         df = pd.read_excel(arq_recente, skiprows=5)
         df.columns = df.columns.str.strip().str.upper()
         
-        # Converte a coluna de data de abertura para formato de data do Python
-        # Ajuste o nome da coluna 'DATA DE ABERTURA' conforme o padrão exato do GETS
+        # Converte a data e calcula os dias em aberto
         if 'DATA ABERTURA' in df.columns:
             df['DATA ABERTURA'] = pd.to_datetime(df['DATA ABERTURA'], errors='coerce')
-            # Calcula os dias em aberto
             hoje = pd.to_datetime(datetime.today().date())
             df['DIAS ABERTO'] = (hoje - df['DATA ABERTURA']).dt.days
+            
+            # --- O "PULO DO GATO": Classificação em Faixas de Dias ---
+            bins = [-1, 5, 15, 30, 60, float('inf')]
+            labels = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
+            df['FAIXA DE DIAS'] = pd.cut(df['DIAS ABERTO'], bins=bins, labels=labels)
+            # ---------------------------------------------------------
             
         return df
     except Exception as e:
@@ -53,15 +58,21 @@ if df_pendentes.empty:
 else:
     st.sidebar.header("Filtros de Busca")
     
-    # Filtro de Tipo de Manutenção (MC / MP)
-    if 'TIPO DE MANUTENÇÃO' in df_pendentes.columns:
-        tipos_manut = df_pendentes['TIPO DE MANUTENÇÃO'].dropna().unique()
+    df_filtrado = df_pendentes.copy()
+    
+    # 1. Filtro: Faixa de Dias
+    if 'FAIXA DE DIAS' in df_filtrado.columns:
+        todas_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
+        faixa_selecionada = st.sidebar.multiselect("Faixa de Dias", todas_faixas, default=todas_faixas)
+        df_filtrado = df_filtrado[df_filtrado['FAIXA DE DIAS'].isin(faixa_selecionada)]
+    
+    # 2. Filtro: Tipo de Manutenção
+    if 'TIPO DE MANUTENÇÃO' in df_filtrado.columns:
+        tipos_manut = df_filtrado['TIPO DE MANUTENÇÃO'].dropna().unique()
         tipo_selecionado = st.sidebar.multiselect("Tipo de Manutenção", tipos_manut, default=tipos_manut)
-        df_filtrado = df_pendentes[df_pendentes['TIPO DE MANUTENÇÃO'].isin(tipo_selecionado)]
-    else:
-        df_filtrado = df_pendentes
+        df_filtrado = df_filtrado[df_filtrado['TIPO DE MANUTENÇÃO'].isin(tipo_selecionado)]
         
-    # Filtro de Estado (Aguardando Peça, Em Execução, etc.)
+    # 3. Filtro: Estado da OS
     if 'ESTADO' in df_filtrado.columns:
         estados = df_filtrado['ESTADO'].dropna().unique()
         estado_selecionado = st.sidebar.multiselect("Status da OS", estados, default=estados)
@@ -72,24 +83,20 @@ else:
 # =====================================================================
     st.markdown("### 📋 Fila de Atendimento")
     
-    # Cria os cartões de resumo rápido acima da tabela
     col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
     col_kpi1.metric("Total de O.S. Exibidas", len(df_filtrado))
     
     if 'DIAS ABERTO' in df_filtrado.columns:
-        media_dias = round(df_filtrado['DIAS ABERTO'].mean(), 1)
-        os_criticas = len(df_filtrado[df_filtrado['DIAS ABERTO'] > 60]) # Considerando > 60 dias como crítico
+        media_dias = round(df_filtrado['DIAS ABERTO'].mean(), 1) if not df_filtrado.empty else 0
+        os_criticas = len(df_filtrado[df_filtrado['DIAS ABERTO'] > 60])
         
         col_kpi2.metric("Média de Dias em Aberto", media_dias)
         col_kpi3.metric("O.S. Atrasadas (> 60 dias)", os_criticas, delta="Atenção", delta_color="inverse")
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Exibe a tabela interativa do Streamlit (permite ordenar, buscar e baixar em CSV)
-    # Selecionamos apenas as colunas mais importantes para não poluir a tela
-    colunas_visiveis = ['OS', 'EQUIPAMENTO', 'N. SÉRIE', 'ESTADO', 'DIAS ABERTO']
-    
-    # Verifica quais colunas realmente existem no Excel do GETS para evitar erros
+    # Colunas que farão sentido aparecer na tabela
+    colunas_visiveis = ['OS', 'EQUIPAMENTO', 'N. SÉRIE', 'ESTADO', 'FAIXA DE DIAS', 'DIAS ABERTO']
     colunas_reais = [col for col in colunas_visiveis if col in df_filtrado.columns]
     
     st.dataframe(
