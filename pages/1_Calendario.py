@@ -24,8 +24,8 @@ else:
 # 1. CONFIGURAÇÃO DA PÁGINA
 # =====================================================================
 st.set_page_config(
-    page_title="Calendário de Manutenção | Conecta",
-    page_icon="📅",
+    page_title="Calendário | Conecta",
+    page_icon=":material/calendar_month:",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -46,11 +46,20 @@ st.markdown("""
         font-family: "Material Symbols Rounded" !important;
     }
 
-    h1 { color: #154899 !important; font-weight: 800 !important; margin-top: -30px; }
+    h1 { color: #154899 !important; font-weight: 800 !important; margin-bottom: 0px; padding-bottom: 5px; margin-top: -10px; }
     h2, h3 { color: #32A347 !important; font-weight: 700 !important; }
-    hr { border-top: 2px solid #32A347; }
+    hr { border-top: 2px solid #32A347; margin-top: 0px; }
     [data-testid="stSidebar"] { background-color: #f8f9fa; }
     .block-container { padding-top: 2rem !important; }
+    
+    /* ESSA É A CLASSE QUE FAZ O ALINHAMENTO PERFEITO DAS LOGOS */
+    .logo-container {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        height: 100%;
+        padding-top: 15px;
+    }
 
     [data-testid="stSidebarCollapseButton"], 
     [data-testid="collapsedControl"] {
@@ -60,42 +69,41 @@ st.markdown("""
     }
     
     [data-testid="stSidebarCollapseButton"] span[data-testid="stIconMaterial"],
-    [data-testid="stSidebarCollapseButton"] svg,
-    [data-testid="collapsedControl"] span[data-testid="stIconMaterial"],
-    [data-testid="collapsedControl"] svg {
+    [data-testid="collapsedControl"] span[data-testid="stIconMaterial"] {
         color: #154899 !important;
-        fill: #154899 !important;
         font-size: 28px !important;
-        width: 28px !important;
-        height: 28px !important;
         transition: all 0.2s ease; 
     }
 
     [data-testid="stSidebarCollapseButton"]:hover span[data-testid="stIconMaterial"],
-    [data-testid="stSidebarCollapseButton"]:hover svg,
-    [data-testid="collapsedControl"]:hover span[data-testid="stIconMaterial"],
-    [data-testid="collapsedControl"]:hover svg {
+    [data-testid="collapsedControl"]:hover span[data-testid="stIconMaterial"] {
         color: #32A347 !important;
-        fill: #32A347 !important;
         transform: scale(1.15); 
     }
     </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 3. CABEÇALHO PADRÃO (LOGOS ALINHADAS NO TOPO)
+# 3. CABEÇALHO PADRÃO (TÍTULO E LOGOS NA MESMA LINHA)
 # =====================================================================
-col_vazia, col_logo1, col_logo2 = st.columns([7.5, 1.2, 1.3])
+col_titulo, col_espaco, col_logo1, col_logo2 = st.columns([5.5, 1.5, 1.5, 1.5])
+
+with col_titulo:
+    st.markdown("<h1 style='display:flex; align-items:center; gap:12px;'><span class='material-symbols-rounded' style='font-size: 40px;'>calendar_month</span> Manutenção Programada</h1>", unsafe_allow_html=True)
+    st.markdown("**Gestão e Acompanhamento de Manutenções de EMH | HU-UNIVASF**")
 
 with col_logo1:
+    st.markdown("<div class='logo-container'>", unsafe_allow_html=True)
     try: st.image("logohubrasil.png", width=200) 
     except: pass
+    st.markdown("</div>", unsafe_allow_html=True)
+    
 with col_logo2:
+    st.markdown("<div class='logo-container'>", unsafe_allow_html=True)
     try: st.image("logounivasf.png", width=140) 
     except: pass
+    st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown("<h1 style='display:flex; align-items:center; gap:12px;'><span class='material-symbols-rounded' style='font-size: 40px;'>calendar_month</span> Manutenção Programada</h1>", unsafe_allow_html=True)
-st.markdown("**Gestão e Acompanhamento de Manutenções de EMH | HU-UNIVASF**")
 st.markdown("---")
 
 # =====================================================================
