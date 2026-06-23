@@ -8,20 +8,15 @@ from datetime import datetime, timezone, timedelta
 # =====================================================================
 # 0. LÓGICA DE DETECÇÃO DO ARQUIVO MAIS RECENTE
 # =====================================================================
-# APONTAMENTO CORRIGIDO PARA A GAVETA NOVA DA NUVEM
 pasta_alvo = os.path.join("planilhas_gets", "06. Agendamento MP")
 arquivos_planilha = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
 
 if arquivos_planilha:
-    # Identifica o arquivo modificado mais recentemente
     caminho_atual = max(arquivos_planilha, key=os.path.getmtime)
     timestamp = os.path.getmtime(caminho_atual)
-    
-    # Ajuste de Fuso Horário cravado (UTC-3)
     fuso_brasil = timezone(timedelta(hours=-3))
     data_cron = datetime.fromtimestamp(timestamp, fuso_brasil).strftime('%d/%m/%Y %H:%M')
 else:
-    # Proteção caso a pasta esteja vazia durante o carregamento do servidor
     caminho_atual = None
     data_cron = "Aguardando sincronização..."
 
@@ -29,56 +24,14 @@ else:
 # 1. CONFIGURAÇÃO DA PÁGINA
 # =====================================================================
 st.set_page_config(
-    page_title="Calendário de Manutenção - EMH | STEC HU-UNIVASF",
+    page_title="Calendário de Manutenção | Conecta",
     page_icon="📅",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # =====================================================================
-# 2. POP-UP (MODAL) REFORMULADO PARA TEXTOS GRANDES
-# =====================================================================
-@st.dialog("Detalhes da Ordem de Serviço")
-def modal_detalhes(evento):
-    props = evento.get('extendedProps', {})
-    
-    st.markdown(f"<h4 style='color: #154899; margin-top: -10px; margin-bottom: 20px;'>{evento.get('title')}</h4>", unsafe_allow_html=True)
-    
-    # Equipamento ganha linha inteira para não esmagar o texto
-    st.markdown(f"""
-        <div style='display:flex; align-items:flex-start; gap:8px; margin-bottom: 12px; font-size: 15px;'>
-            <span class='material-symbols-rounded' style='color:#32A347; font-size:20px; margin-top: 2px;'>vital_signs</span> 
-            <div><b>Equipamento:</b><br>{props.get('equipamento')}</div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown(f"""
-        <div style='display:flex; align-items:center; gap:8px; margin-bottom: 15px; font-size: 15px;'>
-            <span class='material-symbols-rounded' style='color:#32A347; font-size:20px;'>sell</span> 
-            <b>Marca:</b> {props.get('marca')}
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("<hr style='margin: 10px 0px;'>", unsafe_allow_html=True)
-    
-    # Demais itens divididos nas colunas
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:#154899; font-size:18px;'>event</span> <b>Data:</b> {evento.get('start')[:10]}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:#154899; font-size:18px;'>engineering</span> <b>Serviço:</b> {props.get('tipo_servico')}</div>", unsafe_allow_html=True)
-        
-    with col2:
-        st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:#32A347; font-size:18px;'>location_on</span> <b>Setor:</b> {props.get('setor')}</div>", unsafe_allow_html=True)
-        
-        # Cor do Status Inteligente
-        status_os = props.get('status')
-        cor_status = '#A6ACAF' if status_os == 'EXECUTADO' else ('#E74C3C' if status_os == 'ATRASADO' else '#154899')
-        icone_status = 'check_circle' if status_os == 'EXECUTADO' else ('warning' if status_os == 'ATRASADO' else 'rule')
-        
-        st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:{cor_status}; font-size:18px;'>{icone_status}</span> <b style='color:{cor_status};'>Status: {status_os}</b></div>", unsafe_allow_html=True)
-
-# =====================================================================
-# 3. IDENTIDADE VISUAL E IMPORTAÇÃO
+# 2. IDENTIDADE VISUAL E IMPORTAÇÃO (CSS)
 # =====================================================================
 st.markdown("""
     <style>
@@ -93,11 +46,11 @@ st.markdown("""
         font-family: "Material Symbols Rounded" !important;
     }
 
-    h1 { color: #154899 !important; font-weight: 800 !important; }
+    h1 { color: #154899 !important; font-weight: 800 !important; margin-top: -30px; }
     h2, h3 { color: #32A347 !important; font-weight: 700 !important; }
     hr { border-top: 2px solid #32A347; }
     [data-testid="stSidebar"] { background-color: #f8f9fa; }
-    .block-container { padding-top: 3.5rem !important; }
+    .block-container { padding-top: 2rem !important; }
 
     [data-testid="stSidebarCollapseButton"], 
     [data-testid="collapsedControl"] {
@@ -130,27 +83,26 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. CABEÇALHO (HEAD) E BARRA LATERAL LIMPA
+# 3. CABEÇALHO PADRÃO (LOGOS ALINHADAS NO TOPO)
 # =====================================================================
-# Deixamos as colunas das logos com um espaço mais folgado
 col_vazia, col_logo1, col_logo2 = st.columns([7.5, 1.2, 1.3])
 
 with col_logo1:
-    try: 
-        # Tiramos o use_container_width e forçamos a largura em pixels (ex: 200)
-        st.image("logohubrasil.png", width=200) 
+    try: st.image("logohubrasil.png", width=200) 
     except: pass
-
 with col_logo2:
-    try: 
-        # Forçamos a largura da Univasf a ser menor para equilibrar a altura (ex: 130)
-        st.image("logounivasf.png", width=140) 
+    try: st.image("logounivasf.png", width=140) 
     except: pass
 
-# Agora a barra lateral fica focada apenas na operação
+st.markdown("<h1 style='display:flex; align-items:center; gap:12px;'><span class='material-symbols-rounded' style='font-size: 40px;'>calendar_month</span> Manutenção Programada</h1>", unsafe_allow_html=True)
+st.markdown("**Gestão e Acompanhamento de Manutenções de EMH | HU-UNIVASF**")
+st.markdown("---")
+
+# =====================================================================
+# 4. BARRA LATERAL (LIMPA, APENAS CONTROLES)
+# =====================================================================
 with st.sidebar:
-    # TAG DE ÚLTIMA ATUALIZAÇÃO BEM DESTACADA
-    st.info(f"🕒 **Atualizado:**\n\n{data_cron}")
+    st.info(f"🕒 **Última Atualização:**\n\n{data_cron}")
     
     st.markdown("---")
     st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>filter_alt</span> Filtros Dinâmicos</h3>", unsafe_allow_html=True)
@@ -161,6 +113,7 @@ with st.sidebar:
         options=status_opcoes, 
         default=["NO PRAZO", "ATRASADO"] 
     )
+
 # =====================================================================
 # 5. CARREGAMENTO DOS DADOS DO GETS DINÂMICO
 # =====================================================================
@@ -181,7 +134,7 @@ def carregar_dados(caminho_arquivo):
 df_agenda = carregar_dados(caminho_atual)
 
 # =====================================================================
-# 6. MOTOR DE CÁLCULO DE STATUS
+# 6. MOTOR DE CÁLCULO DE STATUS E FILTRO
 # =====================================================================
 hoje = pd.to_datetime('today').normalize()
 
@@ -207,14 +160,45 @@ else:
     df_filtrado = df_agenda.copy()
 
 # =====================================================================
-# 7. CABEÇALHO E CALENDÁRIO VISUAL
+# 7. PREPARAÇÃO DO CALENDÁRIO VISUAL E MODAL
 # =====================================================================
-st.markdown("<h1 style='display:flex; align-items:center; gap:12px;'><span class='material-symbols-rounded' style='font-size: 40px;'>calendar_month</span> Manutenção Programada</h1>", unsafe_allow_html=True)
-st.markdown("**Gestão e Acompanhamento de Manutenções de EMH | HU-UNIVASF**")
-st.markdown("---")
+@st.dialog("Detalhes da Ordem de Serviço")
+def modal_detalhes(evento):
+    props = evento.get('extendedProps', {})
+    
+    st.markdown(f"<h4 style='color: #154899; margin-top: -10px; margin-bottom: 20px;'>{evento.get('title')}</h4>", unsafe_allow_html=True)
+    
+    st.markdown(f"""
+        <div style='display:flex; align-items:flex-start; gap:8px; margin-bottom: 12px; font-size: 15px;'>
+            <span class='material-symbols-rounded' style='color:#32A347; font-size:20px; margin-top: 2px;'>vital_signs</span> 
+            <div><b>Equipamento:</b><br>{props.get('equipamento')}</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown(f"""
+        <div style='display:flex; align-items:center; gap:8px; margin-bottom: 15px; font-size: 15px;'>
+            <span class='material-symbols-rounded' style='color:#32A347; font-size:20px;'>sell</span> 
+            <b>Marca:</b> {props.get('marca')}
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<hr style='margin: 10px 0px;'>", unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:#154899; font-size:18px;'>event</span> <b>Data:</b> {evento.get('start')[:10]}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:#154899; font-size:18px;'>engineering</span> <b>Serviço:</b> {props.get('tipo_servico')}</div>", unsafe_allow_html=True)
+        
+    with col2:
+        st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:#32A347; font-size:18px;'>location_on</span> <b>Setor:</b> {props.get('setor')}</div>", unsafe_allow_html=True)
+        
+        status_os = props.get('status')
+        cor_status = '#A6ACAF' if status_os == 'EXECUTADO' else ('#E74C3C' if status_os == 'ATRASADO' else '#154899')
+        icone_status = 'check_circle' if status_os == 'EXECUTADO' else ('warning' if status_os == 'ATRASADO' else 'rule')
+        
+        st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:{cor_status}; font-size:18px;'>{icone_status}</span> <b style='color:{cor_status};'>Status: {status_os}</b></div>", unsafe_allow_html=True)
 
 eventos_calendario = []
-
 cores_servicos = {
     'PREVENTIVA': '#154899',       
     'CALIBRAÇÃO': '#32A347',       
@@ -230,17 +214,12 @@ for index, row in df_filtrado.iterrows():
     
     status_atual = row.get('Status', 'NO PRAZO')
 
-    if status_atual == 'EXECUTADO':
-        cor_evento = '#A6ACAF' 
-    elif status_atual == 'ATRASADO':
-        cor_evento = '#E74C3C' 
-    else:
-        cor_evento = cores_servicos.get(tipo_servico, '#154899') 
-    
-    titulo = f"[{codigo}] {tipo_servico}"
+    if status_atual == 'EXECUTADO': cor_evento = '#A6ACAF' 
+    elif status_atual == 'ATRASADO': cor_evento = '#E74C3C' 
+    else: cor_evento = cores_servicos.get(tipo_servico, '#154899') 
     
     eventos_calendario.append({
-        "title": titulo,
+        "title": f"[{codigo}] {tipo_servico}",
         "start": data,
         "color": cor_evento,
         "equipamento": equipamento,
@@ -258,24 +237,21 @@ opcoes_calendario = {
     },
     "initialView": "dayGridMonth", 
     "locale": "pt-br",             
-    "buttonText": {
-        "today": "Hoje", "month": "Mês", "week": "Semana", "list": "Lista"
-    }
+    "buttonText": {"today": "Hoje", "month": "Mês", "week": "Semana", "list": "Lista"}
 }
 
 # =====================================================================
-# 8. RENDERIZAÇÃO E CLICK
+# 8. RENDERIZAÇÃO
 # =====================================================================
 st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>event_note</span> Visão Mensal de Execução</h3>", unsafe_allow_html=True)
 
 if not df_filtrado.empty:
     calendario_gerado = calendar(events=eventos_calendario, options=opcoes_calendario)
-
     if calendario_gerado.get("eventClick"):
         evento_clicado = calendario_gerado["eventClick"]["event"]
         modal_detalhes(evento_clicado)
 else:
-    st.info("Nenhuma manutenção encontrada para exibir no momento.")
+    st.info("Nenhuma manutenção encontrada para os filtros selecionados.")
 
 st.markdown("<br><br>", unsafe_allow_html=True)
 st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>list_alt</span> Lista Detalhada de Serviços</h3>", unsafe_allow_html=True)
@@ -283,4 +259,4 @@ st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class=
 colunas_exibir = ['Status', 'Data Agendamento', 'Nome', 'ID', 'Tipo Equipamento', 'Marca', 'U.S.']
 colunas_presentes = [col for col in colunas_exibir if col in df_filtrado.columns]
 
-st.dataframe(df_filtrado[colunas_presentes], use_container_width=True)
+st.dataframe(df_filtrado[colunas_presentes], use_container_width=True, hide_index=True)
