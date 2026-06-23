@@ -130,19 +130,22 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. BARRA LATERAL (LOGOS E FILTROS)
+# 4. CABEÇALHO (HEAD) E BARRA LATERAL LIMPA
 # =====================================================================
+# Cria 3 colunas no topo da página. A primeira é grande (para empurrar as logos pra direita)
+col_vazia, col_logo1, col_logo2 = st.columns([6, 1.5, 1.5])
+
+with col_logo1:
+    try: st.image("logohubrasil.png", use_container_width=True)
+    except: pass
+with col_logo2:
+    try: st.image("logounivasf.png", use_container_width=True)
+    except: pass
+
+# Agora a barra lateral fica focada apenas na operação
 with st.sidebar:
-    col1, col2 = st.columns(2)
-    with col1:
-        try: st.image("logohubrasil.png", use_container_width=True)
-        except: pass
-    with col2:
-        try: st.image("logounivasf.png", use_container_width=True)
-        except: pass
-    
-    # TAG DE ÚLTIMA ATUALIZAÇÃO
-    st.info(f"🕒 Atualizado: {data_cron}")
+    # TAG DE ÚLTIMA ATUALIZAÇÃO BEM DESTACADA
+    st.info(f"🕒 **Atualizado:**\n\n{data_cron}")
     
     st.markdown("---")
     st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>filter_alt</span> Filtros Dinâmicos</h3>", unsafe_allow_html=True)
@@ -153,7 +156,6 @@ with st.sidebar:
         options=status_opcoes, 
         default=["NO PRAZO", "ATRASADO"] 
     )
-
 # =====================================================================
 # 5. CARREGAMENTO DOS DADOS DO GETS DINÂMICO
 # =====================================================================
