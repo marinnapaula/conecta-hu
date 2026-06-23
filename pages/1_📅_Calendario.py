@@ -92,23 +92,26 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# CABEÇALHO UNIFICADO (Use este bloco em todas as páginas)
+# 3. CABEÇALHO PADRÃO (TÍTULO E LOGOS NA MESMA LINHA)
 # =====================================================================
-col_titulo, col_logo1, col_logo2 = st.columns([6, 1.2, 1.2])
+# Dividimos a tela: 5.5 pro título, 1.5 de espaço, e o resto pras logos
+col_titulo, col_espaco, col_logo1, col_logo2 = st.columns([5.5, 1.5, 1.5, 1.5])
 
 with col_titulo:
-    # Ajuste o título conforme a página (ex: "OS Pendentes", "Dashboard Geral")
-    st.markdown("<h1 style='margin-top: -10px;'>🏠 Conecta HU-UNIVASF</h1>", unsafe_allow_html=True)
-    st.markdown("**Engenharia Clínica | Gestão de Ativos Hospitalares**")
+    st.markdown("<h1 style='display:flex; align-items:center; gap:12px; margin-top: -10px;'><span class='material-symbols-rounded' style='font-size: 40px;'>calendar_month</span> Manutenção Programada</h1>", unsafe_allow_html=True)
+    st.markdown("**Gestão e Acompanhamento de Manutenções de EMH | HU-UNIVASF**")
 
 with col_logo1:
-    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True) # Alinhamento fino
-    try: st.image("logohubrasil.png", width=180) 
+    st.markdown("<div class='logo-container'>", unsafe_allow_html=True)
+    try: st.image("logohubrasil.png", width=200) 
     except: pass
+    st.markdown("</div>", unsafe_allow_html=True)
+    
 with col_logo2:
-    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-    try: st.image("logounivasf.png", width=120) 
+    st.markdown("<div class='logo-container'>", unsafe_allow_html=True)
+    try: st.image("logounivasf.png", width=140) 
     except: pass
+    st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("---")
 
