@@ -46,9 +46,9 @@ st.markdown("""
         font-family: "Material Symbols Rounded" !important;
     }
 
-    h1 { color: #154899 !important; font-weight: 800 !important; margin-bottom: 0px; padding-bottom: 5px; }
+    h1 { color: #154899 !important; font-weight: 800 !important; margin-top: -30px; }
     h2, h3 { color: #32A347 !important; font-weight: 700 !important; }
-    hr { border-top: 2px solid #32A347; margin-top: 0px; }
+    hr { border-top: 2px solid #32A347; }
     [data-testid="stSidebar"] { background-color: #f8f9fa; }
     .block-container { padding-top: 2rem !important; }
 
@@ -79,36 +79,25 @@ st.markdown("""
         fill: #32A347 !important;
         transform: scale(1.15); 
     }
-    
-    /* Alinhamento vertical perfeito para as logos */
-    .logo-container {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        height: 100%;
-        padding-top: 15px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 3. CABEÇALHO PADRÃO (TÍTULO E LOGOS NA MESMA LINHA)
+# 3. CABEÇALHO PADRÃO (LOGOS ALINHADAS NO TOPO)
 # =====================================================================
-
-# Deixamos as colunas das logos com um espaço mais folgado
 col_vazia, col_logo1, col_logo2 = st.columns([7.5, 1.2, 1.3])
 
 with col_logo1:
-    try: 
-        # Tiramos o use_container_width e forçamos a largura em pixels (ex: 200)
-        st.image("logohubrasil.png", width=200) 
+    try: st.image("logohubrasil.png", width=200) 
+    except: pass
+with col_logo2:
+    try: st.image("logounivasf.png", width=140) 
     except: pass
 
-with col_logo2:
-    try: 
-        # Forçamos a largura da Univasf a ser menor para equilibrar a altura (ex: 130)
-        st.image("logounivasf.png", width=140) 
-    except: pass
+st.markdown("<h1 style='display:flex; align-items:center; gap:12px;'><span class='material-symbols-rounded' style='font-size: 40px;'>calendar_month</span> Manutenção Programada</h1>", unsafe_allow_html=True)
+st.markdown("**Gestão e Acompanhamento de Manutenções de EMH | HU-UNIVASF**")
+st.markdown("---")
+
 # =====================================================================
 # 4. BARRA LATERAL (LIMPA, APENAS CONTROLES)
 # =====================================================================
