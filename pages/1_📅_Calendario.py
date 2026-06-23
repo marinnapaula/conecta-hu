@@ -94,12 +94,9 @@ st.markdown("""
 # =====================================================================
 # 3. CABEÇALHO PADRÃO (TÍTULO E LOGOS NA MESMA LINHA)
 # =====================================================================
-# Dividimos a tela: 5.5 pro título, 1.5 de espaço, e o resto pras logos
-col_vazia, col_logo1, col_logo2 = st.columns([7.5, 1.2, 1.3])
 
-with col_titulo:
-    st.markdown("<h1 style='display:flex; align-items:center; gap:12px; margin-top: -10px;'><span class='material-symbols-rounded' style='font-size: 40px;'>calendar_month</span> Manutenção Programada</h1>", unsafe_allow_html=True)
-    st.markdown("**Gestão e Acompanhamento de Manutenções de EMH | HU-UNIVASF**")
+# Deixamos as colunas das logos com um espaço mais folgado
+col_vazia, col_logo1, col_logo2 = st.columns([7.5, 1.2, 1.3])
 
 with col_logo1:
     try: 
@@ -112,10 +109,6 @@ with col_logo2:
         # Forçamos a largura da Univasf a ser menor para equilibrar a altura (ex: 130)
         st.image("logounivasf.png", width=140) 
     except: pass
-    st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("---")
-
 # =====================================================================
 # 4. BARRA LATERAL (LIMPA, APENAS CONTROLES)
 # =====================================================================
