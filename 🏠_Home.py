@@ -1,73 +1,140 @@
 import streamlit as st
 
 # =====================================================================
-# 1. CONFIGURAÇÃO PRINCIPAL (DEVE SER A PRIMEIRA LINHA DO STREAMLIT)
+# 1. CONFIGURAÇÃO DA PÁGINA (TELA CHEIA)
 # =====================================================================
-# Isso define o título da aba do navegador e o layout de todo o site
 st.set_page_config(
     page_title="Conecta HU-UNIVASF",
-    page_icon="⚙️",
+    page_icon="🏠",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed" # Esconde a barra lateral na Home
 )
 
 # =====================================================================
-# 2. ESTILIZAÇÃO DA IDENTIDADE VISUAL
+# 2. INJEÇÃO DE CSS (GRADIENTE E BOTÕES QUADRADOS)
 # =====================================================================
 st.markdown("""
     <style>
-    .main-header {
-        font-size: 3rem;
-        color: #003366; /* Azul Escuro Institucional */
-        font-weight: 800;
-        text-align: center;
-        margin-top: -2rem;
+    /* Ocultar elementos padrão do Streamlit para visual mais limpo */
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Fundo Gradiente idêntico ao do Power BI */
+    .stApp {
+        background: linear-gradient(135deg, #A4E5D9 0%, #F6E885 50%, #F5B08C 100%);
     }
-    .sub-header {
-        font-size: 1.2rem;
-        color: #666666;
+
+    /* Centralizar textos */
+    .center-title {
         text-align: center;
-        margin-bottom: 3rem;
+        color: #154899;
+        font-weight: 800;
+        font-family: 'Montserrat', sans-serif;
+        font-size: 3.5rem;
+        margin-top: 10px;
+        margin-bottom: 40px;
+    }
+    
+    .center-subtitle {
+        text-align: center;
+        color: #154899;
+        font-weight: 500;
+        letter-spacing: 1px;
+        margin-top: 40px;
+        margin-bottom: 30px;
+    }
+
+    /* Transformar os botões do Streamlit em Cards Estilizados */
+    div[data-testid="stButton"] > button {
+        background: rgba(255, 255, 255, 0.45);
+        border: 2px solid rgba(255, 255, 255, 0.6);
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        height: 130px;
+        width: 100%;
+        color: #154899;
+        transition: all 0.3s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    /* Efeito de Hover (passar o mouse) */
+    div[data-testid="stButton"] > button:hover {
+        background: rgba(255, 255, 255, 0.9);
+        transform: translateY(-5px);
+        border-color: #154899;
+        box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+    }
+    
+    /* Permite que o texto do botão quebre linha (\n) e centralize */
+    div[data-testid="stButton"] > button > div > p {
+        font-size: 15px;
+        font-weight: 700;
+        white-space: pre-wrap; 
+        text-align: center;
+        margin: 0;
     }
     </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 3. CABEÇALHO
+# 3. CABEÇALHO (LOGO SUPERIOR)
 # =====================================================================
-st.markdown('<div class="main-header">CONECTA HU-UNIVASF</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Centro de Comando da Engenharia Clínica | EBSERH</div>', unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
+col_v1, col_logo_top, col_v2 = st.columns([4, 2, 4])
+with col_logo_top:
+    try: st.image("logounivasf.png", use_container_width=True)
+    except: pass
 
-st.markdown("---")
-
-# =====================================================================
-# 4. CORPO DA PÁGINA INICIAL
-# =====================================================================
-col1, col2 = st.columns([1.2, 1])
-
-with col1:
-    st.write("### 🚀 Bem-vinda ao novo portal!")
-    st.write("""
-    Esta é a nova arquitetura unificada do **Conecta HU-UNIVASF**. 
-    
-    Deixamos as limitações do *low-code* para trás. Agora, a nossa coleta de relatórios do GETS, 
-    o processamento de indicadores (TMA, Horas, Custos) e a interface de monitoramento rodam de forma 100% autônoma e em tempo real.
-    """)
-    
-    st.info("👈 **Utilize o menu lateral esquerdo para navegar entre os módulos do sistema.**")
-
-with col2:
-    st.write("### 📂 Navegação Rápida")
-    st.markdown("""
-    * **📅 Calendário EMH:** Gestão visual das manutenções programadas.
-    * **📊 Dashboard Geral:** Indicadores macro e visão de saúde do contrato.
-    * **🚨 OS Pendentes:** *(Em desenvolvimento)*
-    * **🗺️ Mapa do Parque:** *(Em desenvolvimento)*
-    """)
+st.markdown("<div class='center-title'>⚙️<br>CONECTA HU-UNIVASF</div>", unsafe_allow_html=True)
 
 # =====================================================================
-# 5. RODAPÉ
+# 4. MENU DE NAVEGAÇÃO HORIZONTAL (7 CARDS)
 # =====================================================================
-st.markdown("<br><br><br>", unsafe_allow_html=True)
-st.markdown("---")
-st.caption("<center>Desenvolvido pela Engenharia Clínica - HU-UNIVASF / EBSERH | 2026</center>", unsafe_allow_html=True)
+# Criamos 7 colunas exatas para acomodar os botões da sua imagem
+c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+
+# Os botões usam \n para colocar o ícone em cima e o texto embaixo
+# A função st.switch_page faz a navegação invisível e instantânea para a pasta pages/
+
+with c1:
+    if st.button("📊\nDASHBOARD", use_container_width=True):
+        st.switch_page("pages/2_📊_Dashboard_Geral.py")
+        
+with c2:
+    if st.button("🕰️\nHISTÓRICO", use_container_width=True):
+        st.switch_page("pages/5_🕰️_Historico.py")
+        
+with c3:
+    if st.button("🚨\nOS PENDENTES", use_container_width=True):
+        st.switch_page("pages/3_🚨_OS_Pendentes.py")
+        
+with c4:
+    # Substituí a produtividade pelo nosso calendário turbinado
+    if st.button("📅\nCALENDÁRIO", use_container_width=True):
+        st.switch_page("pages/1_📅_Calendario.py")
+        
+with c5:
+    if st.button("🗺️\nMAPA DE CALOR", use_container_width=True):
+        st.switch_page("pages/4_🗺️_Mapa_do_Parque.py")
+        
+with c6:
+    if st.button("⏳\nIDADE PARQUE", use_container_width=True):
+        st.toast("Módulo em desenvolvimento! Em breve.", icon="🚧")
+        
+with c7:
+    if st.button("🖥️\nMONITORAMENTO", use_container_width=True):
+        st.toast("Módulo em desenvolvimento! Em breve.", icon="🚧")
+
+
+# =====================================================================
+# 5. RODAPÉ (TEXTO E LOGO INFERIOR)
+# =====================================================================
+st.markdown("<div class='center-subtitle'>ENGENHARIA CLÍNICA - HU-UNIVASF / HU BRASIL</div>", unsafe_allow_html=True)
+
+col_v3, col_logo_bot, col_v4 = st.columns([4.2, 1.6, 4.2])
+with col_logo_bot:
+    try: st.image("logohubrasil.png", use_container_width=True)
+    except: pass
