@@ -8,7 +8,8 @@ from datetime import datetime, timezone, timedelta
 # =====================================================================
 # 0. LÓGICA DE DETECÇÃO DO ARQUIVO MAIS RECENTE
 # =====================================================================
-pasta_alvo = "planilhas_gets"
+# APONTAMENTO CORRIGIDO PARA A GAVETA NOVA DA NUVEM
+pasta_alvo = os.path.join("planilhas_gets", "06. Agendamento MP")
 arquivos_planilha = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
 
 if arquivos_planilha:
@@ -158,7 +159,6 @@ with st.sidebar:
 # =====================================================================
 @st.cache_data
 def carregar_dados(caminho_arquivo):
-    # Se o caminho for vazio, retorna um DataFrame zerado para o app não quebrar
     if not caminho_arquivo:
         return pd.DataFrame(columns=['Situação', 'Status Alarme', 'Data Agendamento', 'Nome', 'ID', 'Tipo Equipamento', 'Marca', 'U.S.'])
         
