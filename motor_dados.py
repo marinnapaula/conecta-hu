@@ -58,9 +58,10 @@ MAPA_COLUNAS_UNIVERSAL = {
     'TIPO MANUTENÇÃO': 'CLASSE', 'TIPO DA O.S.': 'CLASSE', 'TIPO DE MANUTENÇÃO': 'CLASSE',
     'PROGRAMA': 'PROGRAMA MP', 'TIPO DE PREVENTIVA': 'PROGRAMA MP',
     'LOCALIZAÇÃO': 'LOCALIZAÇÃO FÍSICA', 'SETOR': 'LOCALIZAÇÃO FÍSICA',
-    'EQUIPAMENTO': 'DESCRIÇÃO', 'TIPO EQUIPAMENTO': 'DESCRIÇÃO', 'NOME DO EQUIPAMENTO': 'DESCRIÇÃO', 'EQUIPAMENTO CRÍTICO': 'CRITICO', 'EQUIPAMENTO CRITICO': 'CRITICO'
+    'EQUIPAMENTO': 'DESCRIÇÃO', 'TIPO EQUIPAMENTO': 'DESCRIÇÃO', 'NOME DO EQUIPAMENTO': 'DESCRIÇÃO', 
+    'EQUIPAMENTO CRÍTICO': 'CRITICO', 'EQUIPAMENTO CRITICO': 'CRITICO'
 }
-COLUNAS_BUSCA_OS = list(MAPA_COLUNAS_UNIVERSAL.keys()) + ['O.S.', 'CRITICO']
+COLUNAS_BUSCA_OS = list(MAPA_COLUNAS_UNIVERSAL.keys()) + ['O.S.', 'CRITICO', 'SNAPSHOT_DATE', 'SNAPSHOT_DT']
 
 def carregar_mais_recente(nome_pasta):
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
@@ -148,67 +149,72 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     return df_final
 
 def gerar_curva_backlog():
-    """MÁQUINA DO TEMPO: Busca Fila Pendente atual E TODAS AS PASTAS HISTÓRICAS de Fila Pendente."""
-    pastas_busca = ["02.OS_Pendentes", "OS Pendentes Historico", "02.OS_Pendentes_Historico", "OS_Pendentes_Historico", "OS Pendentes Histórico"]
+    """MÁQUINA DO TEMPO: Lê a coluna interna SNAPSHOT_DATE de cada linha do histórico para calcular o backlog real."""
+    pastas_busca = ["02.OS_Pendentes", "OS_Pendentes_Historico", "OS Pendentes Historico"]
     
     arquivos = []
     for p in pastas_busca:
         pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", p)
         arquivos.extend(get_arquivos(pasta_alvo))
         
-    arquivos = list(set(arquivos)) # Remove arquivos duplicados
-    
+    arquivos = list(set(arquivos))
     if not arquivos: return pd.DataFrame()
     
-    lista_historico = []
+    lista_dfs = []
     for arq in arquivos:
         df_temp = ler_arquivo_gets(arq, COLUNAS_BUSCA_OS)
         if not df_temp.empty:
             df_temp = df_temp.rename(columns=MAPA_COLUNAS_UNIVERSAL)
             if 'O.S.' in df_temp.columns:
-                df_valid = df_temp.dropna(subset=['O.S.']).copy()
-                qtd_os = len(df_valid)
-                dt_snap = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
+                df_temp = df_temp.dropna(subset=['O.S.']).copy()
                 
-                # Extraindo O.S. Críticas do passado
-                criticas = 0
-                if 'CRITICO' in df_valid.columns:
-                    criticas = len(df_valid[df_valid['CRITICO'].astype(str).str.upper().str.strip() == 'SIM'])
-                
-                # Extraindo Tempo Médio e Faixas de Dias do passado
-                tm_aberta = 0
-                f_0_5 = f_6_15 = f_16_30 = f_31_60 = f_60_mais = 0
-                
-                if 'ABERTURA' in df_valid.columns:
-                    # Garantir que a Abertura é uma data válida
-                    datas_texto = pd.to_datetime(df_valid['ABERTURA'], errors='coerce', dayfirst=True)
-                    numeros = pd.to_numeric(df_valid['ABERTURA'], errors='coerce')
-                    datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
-                    datas_ab = datas_texto.fillna(datas_excel)
+                # Procura a coluna de snapshot gravada de forma nativa nas linhas pelo ETL
+                c_snap = next((c for c in ['SNAPSHOT_DATE', 'SNAPSHOT_DT'] if c in df_temp.columns), None)
+                if c_snap:
+                    df_temp['DT_SNAP_REF'] = pd.to_datetime(df_temp[c_snap], errors='coerce').dt.normalize()
+                else:
+                    # Fallback robusto se for um arquivo bruto sem coluna interna
+                    df_temp['DT_SNAP_REF'] = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
                     
-                    dias_aberto = (dt_snap - datas_ab).dt.days
-                    dias_aberto = dias_aberto[dias_aberto >= 0] # Filtra sujeiras (datas negativas)
-                    
-                    if not dias_aberto.empty:
-                        tm_aberta = dias_aberto.mean()
-                        f_0_5 = len(dias_aberto[dias_aberto <= 5])
-                        f_6_15 = len(dias_aberto[(dias_aberto > 5) & (dias_aberto <= 15)])
-                        f_16_30 = len(dias_aberto[(dias_aberto > 15) & (dias_aberto <= 30)])
-                        f_31_60 = len(dias_aberto[(dias_aberto > 30) & (dias_aberto <= 60)])
-                        f_60_mais = len(dias_aberto[dias_aberto > 60])
+                lista_dfs.append(df_temp[['O.S.', 'ABERTURA', 'CRITICO', 'DT_SNAP_REF']])
                 
-                lista_historico.append({
-                    'Data': dt_snap, 'Volume Fila': int(qtd_os), 'Críticas': int(criticas),
-                    'Tempo Médio Aberta': tm_aberta, '0 a 5 dias': f_0_5, '6 a 15 dias': f_6_15,
-                    '16 a 30 dias': f_16_30, '31 a 60 dias': f_31_60, 'Mais de 60 dias': f_60_mais
-                })
-            
-    if not lista_historico: return pd.DataFrame()
-    df_hist = pd.DataFrame(lista_historico)
+    if not lista_dfs: return pd.DataFrame()
+    df_total = pd.concat(lista_dfs, ignore_index=True)
+    df_total = df_total.dropna(subset=['DT_SNAP_REF', 'ABERTURA'])
     
-    # Se você extraiu dois relatórios no mesmo dia, ele calcula a média daquele dia
-    df_hist = df_hist.groupby('Data').mean().reset_index().sort_values(by='Data')
-    return df_hist
+    # Tratamento blindado da coluna Abertura
+    datas_texto = pd.to_datetime(df_total['ABERTURA'], errors='coerce', dayfirst=True)
+    numeros = pd.to_numeric(df_total['ABERTURA'], errors='coerce')
+    datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
+    df_total['ABERTURA_CLEAN'] = datas_texto.fillna(datas_excel)
+    
+    df_total = df_total.dropna(subset=['ABERTURA_CLEAN'])
+    
+    # Calcula os dias em aberto no exato dia em que o snapshot foi registrado!
+    df_total['DIAS_ABERTO_HIST'] = (df_total['DT_SNAP_REF'] - df_total['ABERTURA_CLEAN']).dt.days
+    df_total = df_total[df_total['DIAS_ABERTO_HIST'] >= 0]
+    
+    # Agrupa e reconstrói os pontos diários dos gráficos exatamente como o DAX
+    linhas_historico = []
+    for data_ref, group in df_total.groupby('DT_SNAP_REF'):
+        qtd_os = len(group)
+        criticas = len(group[group['CRITICO'].astype(str).str.upper().str.strip() == 'SIM'])
+        tm_aberta = group['DIAS_ABERTO_HIST'].mean()
+        
+        f_0_5 = len(group[group['DIAS_ABERTO_HIST'] <= 5])
+        f_6_15 = len(group[(group['DIAS_ABERTO_HIST'] > 5) & (group['DIAS_ABERTO_HIST'] <= 15)])
+        f_16_30 = len(group[(group['DIAS_ABERTO_HIST'] > 15) & (group['DIAS_ABERTO_HIST'] <= 30)])
+        f_31_60 = len(group[(group['DIAS_ABERTO_HIST'] > 30) & (group['DIAS_ABERTO_HIST'] <= 60)])
+        f_60_mais = len(group[group['DIAS_ABERTO_HIST'] > 60])
+        
+        linhas_historico.append({
+            'Data': data_ref, 'Volume Fila': int(qtd_os), 'Críticas': int(criticas),
+            'Tempo Médio Aberta': tm_aberta, '0 a 5 dias': f_0_5, '6 a 15 dias': f_6_15,
+            '16 a 30 dias': f_16_30, '31 a 60 dias': f_31_60, 'Mais de 60 dias': f_60_mais
+        })
+        
+    if not linhas_historico: return pd.DataFrame()
+    return pd.DataFrame(linhas_historico).sort_values('Data')
 
 # =====================================================================
 # 3. MOTOR DE TRATAMENTO E INTELIGÊNCIA (INVENTÁRIO)
