@@ -230,7 +230,7 @@ with tab_fila:
         if f_faixa_dias: df_f = df_f[df_f['FAIXA_DIAS'].isin(f_faixa_dias)]
         if f_local_fisico and col_local: df_f = df_f[df_f[col_local].isin(f_local_fisico)]
         if f_tipo_equip and col_tipo: df_f = df_f[df_f[col_tipo].isin(f_tipo_equip)]
-        if f_estado_os and col_estado: df_f = df_f[df_f[col_estado].isin(f_estado_os)]
+        if f_estado_os protect_col = col_estado: df_f = df_f[df_f[col_estado].isin(f_estado_os)]
         if f_eq_parado != "Todos" and col_parado: df_f = df_f[df_f[col_parado] == f_eq_parado]
         if f_eq_critico != "Todos" and col_critico: df_f = df_f[df_f[col_critico] == f_eq_critico]
 
@@ -286,12 +286,11 @@ with tab_fila:
                         
                         if not df_historico_os.empty:
                             col_dt_inicio = get_col(df_historico_os, ['DATA INÍCIO', 'DATA INICIO', 'INÍCIO', 'INICIO', 'DATA DA EXECUÇÃO', 'DATA'])
-                            col_dt_fim = get_col(df_historico_os, ['DATA TÉRMINO', 'DATA TERMINO', 'TÉRMINO', 'TERMINO', 'FIM'])
                             col_atividade = get_col(df_historico_os, ['ATIVIDADE', 'ATIVIDADES', 'TIPO ATIVIDADE'])
                             col_servico = get_col(df_historico_os, ['SERVIÇO EXECUTADO', 'SERVICO EXECUTADO', 'SERVIÇO', 'DESCRIÇÃO', 'HISTÓRICO'])
                             col_exec_act = get_col(df_historico_os, ['EXECUTOR', 'TÉCNICO', 'RESPONSÁVEL', 'TECNICO'])
                             
-                            cols_print_act = [c for c in [col_dt_inicio, col_dt_fim, col_exec_act, col_atividade, col_servico] if c]
+                            cols_print_act = [c for c in [col_dt_inicio, col_exec_act, col_atividade, col_servico] if c]
                             df_print_act = df_historico_os[cols_print_act].copy()
                             
                             if col_dt_inicio:
@@ -299,20 +298,16 @@ with tab_fila:
                                 df_print_act = df_print_act.sort_values(by=col_dt_inicio, ascending=False)
                                 df_print_act[col_dt_inicio] = df_print_act[col_dt_inicio].dt.strftime('%d/%m/%Y %H:%M')
                                 
-                            if col_dt_fim:
-                                df_print_act[col_dt_fim] = pd.to_datetime(df_print_act[col_dt_fim], errors='coerce').dt.strftime('%d/%m/%Y %H:%M')
-                                
-                            # TRAVA DE SEGURANÇA VISUAL: Evita truncamento do texto longo
+                            # TRAVA DE SEGURANÇA VISUAL: Alinhamento das colunas com cabeçalho Atualização
                             config_colunas = {}
-                            if col_dt_inicio: config_colunas[col_dt_inicio] = st.column_config.TextColumn("Data Início", width="medium")
-                            if col_dt_fim: config_colunas[col_dt_fim] = st.column_config.TextColumn("Data Término", width="medium")
+                            if col_dt_inicio: config_colunas[col_dt_inicio] = st.column_config.TextColumn("Atualização", width="medium")
                             if col_exec_act: config_colunas[col_exec_act] = st.column_config.TextColumn("Executor", width="medium")
                             if col_atividade: config_colunas[col_atividade] = st.column_config.TextColumn("Atividade", width="medium")
                             if col_servico: config_colunas[col_servico] = st.column_config.TextColumn("Serviço Executado", width="large")
                                 
                             st.dataframe(df_print_act, use_container_width=True, hide_index=True, column_config=config_colunas)
                             
-                            # VISUALIZAÇÃO COMPLEMENTAR EM CARD (Para relatórios extensos)
+                            # VISUALIZAÇÃO COMPLEMENTAR EM CARD (Para relatórios imensos)
                             with st.expander("Ver textos de Serviços Executados completos"):
                                 for _, lista_row in df_print_act.iterrows():
                                     t_ini = lista_row.get(col_dt_inicio, 'N/I')
