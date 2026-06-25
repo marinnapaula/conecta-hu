@@ -197,7 +197,7 @@ with tab_fila:
         if col_critico: df_p[col_critico] = df_p[col_critico].astype(str).str.upper().str.strip()
         if col_parado: df_p[col_parado] = df_p[col_parado].astype(str).str.upper().str.strip()
 
-        # Medidas táticas dos cartões
+        # Medidas táticas dos cartões superiores
         total_f = len(df_p)
         parados_f = len(df_p[df_p[col_parado] == 'SIM']) if col_parado else 0
         criticos_f = len(df_p[df_p[col_critico] == 'SIM']) if col_critico else 0
@@ -257,7 +257,11 @@ with tab_fila:
                 with st.container(border=True):
                     f_col_t, f_col_b1, f_col_b2 = st.columns([2, 1, 1])
                     f_col_t.markdown(f"#### Ficha de Atendimento - O.S. № {os_alvo}")
-                    f_col_t.markdown(f"**Equipamento:** {dados_linha.get(col_tipo, 'N/I')} | **Chave Ativo:** {dados_linha.get('EQUIP_KEY', 'N/A')}")
+                    
+                    # CORREÇÃO DA MÁGICA: Extrai número de série e patrimônio reais da O.S.
+                    num_serie_real = dados_linha.get(col_serie, 'N/I')
+                    num_pat_real = dados_linha.get('PATRIMÔNIO', dados_linha.get('IDENTIFICADOR', 'N/I'))
+                    f_col_t.markdown(f"**Equipamento:** {dados_linha.get(col_tipo, 'N/I')} | **Nº Série:** {num_serie_real} | **Patrimônio:** {num_pat_real}")
                     
                     p_status = "🔴 PARADO" if str(dados_linha.get(col_parado, '')).upper() == 'SIM' else "🟢 EM OPERAÇÃO"
                     c_status = "⚠️ ALTA CRITICIDADE" if str(dados_linha.get(col_critico, '')).upper() == 'SIM' else "ℹ️ CRITICIDADE NORMAL"
@@ -267,7 +271,6 @@ with tab_fila:
                     
                     d1, d2, d3 = st.columns(3)
                     dt_ab_str = dados_linha[col_abertura].strftime('%d/%m/%Y') if pd.notnull(dados_linha.get(col_abertura)) else 'N/I'
-                    dt_tr_str = pd.to_datetime(dados_linha.get(get_col(df_f, ['DT. ÚLTIMA TRANSIÇÃO', 'ÚLTIMA TRANSIÇÃO']))).strftime('%d/%m/%Y') if pd.notnull(dados_linha.get(get_col(df_f, ['DT. ÚLTIMA TRANSIÇÃO', 'ÚLTIMA TRANSIÇÃO']))) else 'N/I'
                     
                     d1.markdown(f"**📅 Abertura:** {dt_ab_str}")
                     d1.markdown(f"**⏳ Dias na Fila:** {dados_linha.get('DIAS_EM_ABERTO', 0)} dias")
@@ -302,14 +305,30 @@ with tab_fila:
                             if col_dt_fim:
                                 df_print_act[col_dt_fim] = pd.to_datetime(df_print_act[col_dt_fim], errors='coerce').dt.strftime('%d/%m/%Y %H:%M')
                                 
-                            st.dataframe(df_print_act, use_container_width=True, hide_index=True)
+                            # TRAVA DE SEGURANÇA VISUAL: Evita truncamento do texto longo
+                            config_colunas = {}
+                            if col_dt_inicio: config_colunas[col_dt_inicio] = st.column_config.TextColumn("Data Início", width="medium")
+                            if col_dt_fim: config_colunas[col_dt_fim] = st.column_config.TextColumn("Data Término", width="medium")
+                            if col_exec_act: config_colunas[col_exec_act] = st.column_config.TextColumn("Executor", width="medium")
+                            if col_atividade: config_colunas[col_atividade] = st.column_config.TextColumn("Atividade", width="medium")
+                            if col_servico: config_colunas[col_servico] = st.column_config.TextColumn("Serviço Executado", width="large")
+                                
+                            st.dataframe(df_print_act, use_container_width=True, hide_index=True, column_config=config_colunas)
+                            
+                            # VISUALIZAÇÃO COMPLEMENTAR EM CARD (Para relatórios extensos)
+                            with st.expander("🔍 Ver textos de Serviços Executados completos linha por linha"):
+                                for _, lista_row in df_print_act.iterrows():
+                                    t_ini = lista_row.get(col_dt_inicio, 'N/I')
+                                    t_exec = lista_row.get(col_exec_act, 'N/I')
+                                    t_txt = lista_row.get(col_servico, 'Sem descrição detalhada')
+                                    st.markdown(f"**[{t_ini}] - Executor: {t_exec}**")
+                                    st.info(t_txt)
                         else:
                             st.info("Esta O.S. está na fila aguardando o primeiro apontamento técnico.")
                     else:
                         st.info("Logs indisponíveis na pasta '03.Atividades'.")
         else:
             st.warning("Ajuste a busca para carregar as fichas técnicas.")
-
 # =====================================================================
 # TAB 3: PRODUTIVIDADE E TMA
 # =====================================================================
