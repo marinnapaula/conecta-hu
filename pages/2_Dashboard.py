@@ -208,18 +208,7 @@ with tab_fila:
         if col_critico: df_p[col_critico] = df_p[col_critico].astype(str).str.upper().str.strip()
         if col_parado: df_p[col_parado] = df_p[col_parado].astype(str).str.upper().str.strip()
 
-        total_f = len(df_p)
-        parados_f = len(df_p[df_p[col_parado] == 'SIM']) if col_parado else 0
-        criticos_f = len(df_p[df_p[col_critico] == 'SIM']) if col_critico else 0
-        tma_f = df_p['DIAS_EM_ABERTO'].mean() if total_f > 0 else 0
-
-        f_c1, f_c2, f_c3, f_c4 = st.columns(4)
-        f_c1.metric("O.S. Pendentes", total_f)
-        f_c2.metric("Equipamentos Parados", parados_f, "Gargalo Assistencial", delta_color="inverse" if parados_f > 0 else "normal")
-        f_c3.metric("Equipamentos Críticos", criticos_f, "Prioridade de Despacho", delta_color="inverse" if criticos_f > 0 else "normal")
-        f_c4.metric("Tempo Médio de Fila", f"{tma_f:.1f} Dias")
-
-        st.markdown("<br><h3 style='color: #154899;'> Acompanhamento de O.S Pendentes </h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #154899; margin-top: 15px;'> Fila de O.S Pendentes (Centro de Comando)</h3>", unsafe_allow_html=True)
 
         with st.container(border=True):
             r1, r2, r3, r4 = st.columns(4)
@@ -286,7 +275,7 @@ with tab_fila:
                     d2.markdown(f"**📍 Localização:** {dados_linha.get(col_local, 'N/I')}")
                     d3.markdown(f"**⚙️ Status da O.S.:** {dados_linha.get(col_estado, 'N/I')}")
                     
-                    st.markdown("<br><h5 style='color: #32A347;'>Detalhamento</h5>", unsafe_allow_html=True)
+                    st.markdown("<br><h5 style='color: #32A347;'>Detalhamento Técnico</h5>", unsafe_allow_html=True)
                     
                     if not df_atividades.empty:
                         df_at_temp = df_atividades.copy()
@@ -334,52 +323,48 @@ with tab_fila:
 # TAB 3: INDICADORES (PRODUTIVIDADE E PANORAMA)
 # =====================================================================
 with tab_indicadores:
-    st.markdown("<h3 style='color: #154899;'>Tempo Médio de Atendimento (TMA)</h3>", unsafe_allow_html=True)
-    
-    # 1. Cálculos de TMA (da Tabela de Encerradas)
-    tma_g_12 = 0; tma_g_30 = 0; tma_mp_12 = 0; tma_mc_12 = 0
+    # --- CÁLCULO DAS MÉTRICAS DE TMA (ENCERRADAS) ---
+    tma_g_12 = 0; tma_mc_12 = 0
     if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
         df_e = df_enc.copy()
         df_e['DURACAO'] = (df_e['ENCERRAMENTO'] - df_e['ABERTURA']).dt.days
         
         hoje = pd.Timestamp(datetime.today().date())
         df_12m = df_e[df_e['ENCERRAMENTO'] >= (hoje - pd.DateOffset(months=12))]
-        df_30d = df_e[df_e['ENCERRAMENTO'] >= (hoje - pd.DateOffset(days=30))]
         
         tma_g_12 = df_12m['DURACAO'].mean() if not df_12m.empty else 0
-        tma_g_30 = df_30d['DURACAO'].mean() if not df_30d.empty else 0
         
         col_classe_e = get_col(df_12m, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
         if col_classe_e:
-            cond_mp = df_12m[col_classe_e].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA')
             cond_mc = df_12m[col_classe_e].astype(str).str.upper().str.contains('CORR|MC|QUEBRA')
-            
-            tma_mp_12 = df_12m[cond_mp]['DURACAO'].mean() if not df_12m[cond_mp].empty else 0
             tma_mc_12 = df_12m[cond_mc]['DURACAO'].mean() if not df_12m[cond_mc].empty else 0
 
-    # UI do TMA - Rádio Button Integrado
-    col_tma_sel, col_tma_met, col_vazio = st.columns([1.5, 1, 2])
-    
-    with col_tma_sel:
-        visao_tma = st.radio("Filtro de Visão do TMA:", 
-            ["Geral (12 Meses)", "Geral (30 Dias)", "Preventiva / Programada (12 Meses)", "Corretiva (12 Meses)"],
-            index=0)
+    # --- CÁLCULO DAS MÉTRICAS DE FILA (PENDENTES) ---
+    tot_pend = 0; tot_crit = 0; tm_aberta_geral = 0; tm_aberta_mc = 0
+    if not df_pend.empty:
+        tot_pend = len(df_pend)
+        
+        col_critico_ind = get_col(df_pend, ['EQUIPAMENTO CRÍTICO', 'EQUIPAMENTO CRITICO'])
+        if col_critico_ind:
+            tot_crit = len(df_pend[df_pend[col_critico_ind].astype(str).str.upper().str.strip() == 'SIM'])
             
-    dict_tma = {
-        "Geral (12 Meses)": tma_g_12,
-        "Geral (30 Dias)": tma_g_30,
-        "Preventiva / Programada (12 Meses)": tma_mp_12,
-        "Corretiva (12 Meses)": tma_mc_12
-    }
+        tm_aberta_geral = df_pend['DIAS_EM_ABERTO'].mean()
+        
+        df_pend_mc = df_pend[df_pend['TIPO_MANUTENCAO'] == 'CORRETIVA']
+        tm_aberta_mc = df_pend_mc['DIAS_EM_ABERTO'].mean() if not df_pend_mc.empty else 0
+
+    # --- LINHA 1: CARTÕES RESUMO UNIFICADOS (SUTIS E DIRETOS) ---
+    st.markdown("<h4 style='color: #154899; margin-bottom: 5px; margin-top: 5px;'>Visão Geral de Desempenho e Fila</h4>", unsafe_allow_html=True)
     
-    val_tma = dict_tma[visao_tma]
-    with col_tma_met:
-        st.metric(f"TMA {visao_tma}", f"{val_tma:.2f} Dias" if pd.notnull(val_tma) else "0.00 Dias")
+    ind_c1, ind_c2, ind_c3, ind_c4 = st.columns(4)
+    ind_c1.metric("TMA Geral (Últimos 12 Meses)", f"{tma_g_12:.1f} Dias")
+    ind_c2.metric("TMA Corretiva (Últimos 12 Meses)", f"{tma_mc_12:.1f} Dias")
+    ind_c3.metric("Total de O.S. Pendentes", f"{tot_pend}", f"{tot_crit} Críticas", delta_color="inverse" if tot_crit > 0 else "normal")
+    ind_c4.metric("Tempo Médio de Espera (Abertas)", f"{tm_aberta_geral:.1f} Dias", f"Apenas Corretivas: {tm_aberta_mc:.1f} Dias", delta_color="inverse" if tm_aberta_geral > 0 else "normal")
 
     st.markdown("---")
-    st.markdown("<h3 style='color: #154899;'>Panorama de O.S. Pendentes</h3>", unsafe_allow_html=True)
     
-    # 2. Painel de Gráficos de Fila
+    # --- LINHA 2: GRÁFICOS (VISÃO DO POWER BI) ---
     if not df_pend.empty:
         col_estado_graf = get_col(df_pend, ['ESTADO', 'ESTADO DA O.S.'])
         col_os_graf = get_col(df_pend, ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS', 'OS_KEY'])
@@ -387,7 +372,7 @@ with tab_indicadores:
         if col_estado_graf and col_os_graf:
             c_esq, c_dir = st.columns([1.2, 1])
             
-            # Lado Esquerdo: Média x Total por Estado
+            # Gráfico 1 (Esquerda): Média de Dias x Total de OS por Estado
             with c_esq:
                 with st.container(border=True):
                     st.markdown("##### Média de Dias em Aberto x Total de O.S. por Estado")
@@ -400,26 +385,27 @@ with tab_indicadores:
                     fig_est.update_layout(barmode='group', height=500, margin=dict(l=0, r=0, t=20, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5))
                     st.plotly_chart(fig_est, use_container_width=True)
             
-            # Lado Direito: Faixa de Dias e Tipo de Manutenção
             with c_dir:
+                # Gráfico 2 (Direita Topo): Faixa de Dias
                 with st.container(border=True):
                     st.markdown("##### Total O.S. x Faixa de Dias")
                     df_faixa_g = df_pend.groupby(['FAIXA_DIAS', 'ORDEM_FAIXA']).size().reset_index(name='Total')
                     df_faixa_g = df_faixa_g.sort_values('ORDEM_FAIXA', ascending=False)
-                    fig_faixa = px.bar(df_faixa_g, y='FAIXA_DIAS', x='Total', orientation='h', text='Total', color_discrete_sequence=['#32A347'])
+                    fig_faixa = px.bar(df_faixa_g, y='FAIXA_DIAS', x='Total', orientation='h', text='Total', color_discrete_sequence=['#70ad47'])
                     fig_faixa.update_layout(height=200, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
                     st.plotly_chart(fig_faixa, use_container_width=True)
                     
+                # Gráfico 3 (Direita Base): Pizza de Manutenção
                 with st.container(border=True):
                     st.markdown("##### O.S. Pendente x Tipo de Manutenção")
                     df_tp = df_pend['TIPO_MANUTENCAO'].value_counts().reset_index()
                     df_tp.columns = ['Tipo', 'Total']
-                    fig_tp = px.pie(df_tp, names='Tipo', values='Total', hole=0.5, color_discrete_sequence=['#154899', '#32A347', '#e6e6e6'])
+                    fig_tp = px.pie(df_tp, names='Tipo', values='Total', hole=0.5, color_discrete_sequence=['#44546a', '#70ad47', '#e6e6e6'])
                     fig_tp.update_traces(textposition='inside', textinfo='percent+label')
-                    fig_tp.update_layout(height=220, margin=dict(l=0, r=0, t=10, b=0), showlegend=True)
+                    fig_tp.update_layout(height=230, margin=dict(l=0, r=0, t=10, b=0), showlegend=True)
                     st.plotly_chart(fig_tp, use_container_width=True)
         else:
-            st.info("Colunas necessárias de Estado ou Número da O.S. não encontradas para gerar os gráficos.")
+            st.info("Colunas de Estado ou O.S. ausentes no arquivo de Pendentes.")
     else:
         st.success("Não há Ordens de Serviço pendentes na base atual.")
 
