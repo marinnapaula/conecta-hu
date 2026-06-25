@@ -41,3 +41,11 @@ st.sidebar.markdown("---")
 st.sidebar.write("### Instruções de Teste")
 st.sidebar.write("1. Garanta que os CSVs estão em `planilhas_gets/02.OS_Pendentes`.")
 st.sidebar.write("2. Clique no botão acima para processar.")
+df, status = obter_dados_historico()
+
+if not df.empty:
+    st.subheader("Gráfico de Backlog por Faixa")
+    # Gráfico de Área Empilhada
+    fig = px.area(df, x='DT_SNAP', y='Volume', color='FAIXA_DIAS', 
+                  category_orders={"FAIXA_DIAS": ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias", "Mais de 60 dias"]})
+    st.plotly_chart(fig, use_container_width=True)
