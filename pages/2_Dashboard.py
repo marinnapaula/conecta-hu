@@ -253,7 +253,7 @@ with tab_fila:
         if col_critico: df_p[col_critico] = df_p[col_critico].astype(str).str.upper().str.strip()
         if col_parado: df_p[col_parado] = df_p[col_parado].astype(str).str.upper().str.strip()
 
-        st.markdown("<h3 style='color: #154899; margin-top: 15px;'> Fila de O.S Pendentes (Centro de Comando)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #154899; margin-top: 15px;'> O.S. Pendentes </h3>", unsafe_allow_html=True)
 
         with st.container(border=True):
             r1, r2, r3, r4 = st.columns(4)
@@ -368,7 +368,7 @@ with tab_fila:
 # TAB 3: PRODUTIVIDADE (FLUXO HISTÓRICO)
 # =====================================================================
 with tab_produtividade:
-    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Análise de Produtividade e Entregas Mensais</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Produtividade</h3>", unsafe_allow_html=True)
     
     if not df_enc.empty:
         col_abertura_e = get_col(df_enc, ['ABERTURA', 'DATA ABERTURA'])
@@ -510,7 +510,7 @@ with tab_calor:
             st.dataframe(df_pivot.style.apply(style_matrix, axis=None).format(na_rep=""), use_container_width=True, height=400)
             
             st.markdown("---")
-            st.markdown("<h4 style='color: #32A347;'>🔍 Lupa de Estratificação (Drill-down)</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 style='color: #32A347;'>Detalhamento do Mapa</h4>", unsafe_allow_html=True)
             st.write("Identificou um atraso na matriz acima? Selecione o equipamento e o status abaixo para puxar a lista de números de série.")
             
             c_drill1, c_drill2 = st.columns(2)
