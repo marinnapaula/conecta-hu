@@ -13,41 +13,37 @@ def obter_dados_historico():
         if not arq.lower().endswith(('.xlsx', '.xls', '.csv')): continue
         
         try:
-            if arq.lower().endswith('.csv'):
-                df = pd.read_csv(arq, sep=None, engine='python', dtype=str, encoding='latin1')
-            else:
-                df = pd.read_excel(arq, dtype=str, engine='openpyxl' if arq.endswith('x') else 'xlrd')
-                
+            # Identifica a data pelo nome (padrão RelOSsPendentesYYYYMMDD...)
+            match = re.search(r'RelOSsPendentes(\d{4})(\d{2})(\d{2})', os.path.basename(arq))
+            if not match: continue
+            data_ref = pd.Timestamp(f"{match.group(1)}-{match.group(2)}-{match.group(3)}")
+
+            # Leitura
+            df = pd.read_excel(arq, dtype=str) if not arq.endswith('.csv') else pd.read_csv(arq, sep=None, engine='python', dtype=str)
             df.columns = df.columns.str.strip().str.upper()
             
-            # Identifica colunas
             c_os = next((c for c in df.columns if 'O.S.' in c or 'OS' in c), None)
             c_abert = next((c for c in df.columns if 'ABERTURA' in c), None)
             
             if c_os and c_abert:
-                # Converte abertura
                 df['DT_ABERTURA'] = pd.to_datetime(df[c_abert].astype(str).str.split(',').str[-1], dayfirst=True, errors='coerce')
                 df = df.dropna(subset=['DT_ABERTURA'])
                 
-                # Extrai data do nome
-                match = re.search(r'RelOSsPendentes(\d{4})(\d{2})(\d{2})', os.path.basename(arq))
-                df['DT_SNAP'] = pd.Timestamp(f"{match.group(1)}-{match.group(2)}-{match.group(3)}") if match else pd.to_datetime(os.path.getmtime(arq), unit='s')
+                # Calcula dias e faixa
+                dias = (data_ref - df['DT_ABERTURA']).dt.days
+                df['FAIXA_DIAS'] = pd.cut(dias, bins=[-1, 5, 15, 30, 60, 99999], 
+                                          labels=["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias", "Mais de 60 dias"])
                 
-                df['DIAS_ABERTO'] = (df['DT_SNAP'] - df['DT_ABERTURA']).dt.days
-                lista_dfs.append(df[['DT_SNAP', 'DIAS_ABERTO', c_os]])
+                df['DT_SNAP'] = data_ref
+                lista_dfs.append(df[['DT_SNAP', 'FAIXA_DIAS', c_os]])
         except: continue
             
     if not lista_dfs: return pd.DataFrame(), "Sem dados"
     
-    df_total = pd.concat(lista_dfs, ignore_index=True)
+    df_final = pd.concat(lista_dfs, ignore_index=True)
     
-    # AGORA GARANTIMOS O NOME DAS COLUNAS:
-    resultado = df_total.groupby('DT_SNAP').agg(
-        Volume_Fila=('DT_SNAP', 'count'),
-        Media_Dias=('DIAS_ABERTO', 'mean')
-    ).reset_index()
+    # CRIA A GRADE COMPLETA (Preenche buracos com zero)
+    idx = pd.MultiIndex.from_product([df_final['DT_SNAP'].unique(), df_final['FAIXA_DIAS'].unique()], names=['DT_SNAP', 'FAIXA_DIAS'])
+    df_agrupado = df_final.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().reindex(idx, fill_value=0).reset_index(name='Volume')
     
-    # Renomeia forçadamente para evitar o erro do "KeyError"
-    resultado.columns = ['DT_SNAP', 'Volume_Fila', 'Media_Dias']
-    
-    return resultado, "Sucesso!"
+    return df_agrupado.sort_values('DT_SNAP'), "Sucesso!"
