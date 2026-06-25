@@ -1,53 +1,33 @@
 import streamlit as st
+import plotly.express as px
 import plotly.graph_objects as go
 from engine_historico import obter_dados_historico
 
 st.title("🧪 Laboratório de Histórico")
 
 if st.button("🚀 Processar Dados"):
-    df, msg = obter_dados_historico()
+    df_raw = obter_dados_historico()
     
-    if not df.empty:
-        st.success("Dados processados com sucesso!")
+    if not df_raw.empty:
+        # 1. Dados para Linhas
+        df_linhas = df_raw.groupby('DT_SNAP').agg(Volume=('DT_SNAP', 'count'), Media=('DIAS_ABERTO', 'mean')).reset_index()
         
-        # Gráfico de Backlog por Faixa (Área Sobreposta)
-        st.subheader("Gráfico de Backlog por Faixa (Área Sobreposta)")
-        
+        # 2. Dados para Faixa (agrupado aqui, na hora de usar)
+        df_faixa = df_raw.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().reset_index(name='Volume')
+
+        # Gráfico Área Sobreposta
+        st.subheader("Gráfico de Backlog por Faixa")
         fig = go.Figure()
         faixas = ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias", "Mais de 60 dias"]
-        
-        # Adicionamos cada faixa como uma camada (trace) independente
-        for faixa in faixas:
-            # Filtra o DataFrame apenas para a faixa atual
-            df_faixa = df[df['FAIXA_DIAS'] == faixa]
-            
-            # Adiciona ao gráfico sem empilhamento (stackgroup=None)
-            fig.add_trace(go.Scatter(
-                x=df_faixa['DT_SNAP'], 
-                y=df_faixa['Volume'],
-                fill='tozeroy',  # Preenchimento até o eixo zero
-                mode='lines',    # Apenas a linha da área
-                name=faixa,
-                stackgroup=None  # A mágica que impede o empilhamento
-            ))
-
-        # Ajustes visuais
-        fig.update_layout(
-            xaxis_title="Data",
-            yaxis_title="Volume",
-            hovermode="x unified",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        for f in faixas:
+            subset = df_faixa[df_faixa['FAIXA_DIAS'] == f]
+            fig.add_trace(go.Scatter(x=subset['DT_SNAP'], y=subset['Volume'], fill='tozeroy', name=f, stackgroup=None))
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Tabela de Conferência (opcional, para conferir os dados)
-        with st.expander("Ver dados brutos"):
-            st.dataframe(df)
-
+        # Métricas
+        c1, c2 = st.columns(2)
+        c1.metric("Volume Total", df_linhas['Volume'].sum())
+        c2.metric("Média Geral", f"{df_linhas['Media'].mean():.1f} dias")
     else:
-        st.error(f"Não foi possível processar os dados: {msg}")
-
-st.sidebar.markdown("---")
-st.sidebar.write("### Instruções")
-st.sidebar.write("Os arquivos devem estar em: `planilhas_gets/02.OS_Pendentes`")
+        st.error("Nenhum dado encontrado.")
