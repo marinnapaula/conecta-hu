@@ -181,13 +181,26 @@ def limpar_dimensao_equipamentos(df_inventario_bruto):
 def enriquecer_base_inventario(df_inventario, df_os_encerradas):
     """
     Cruza o Inventário limpo com as OS Encerradas.
-    Calcula prazos de manutenção, idade e ciclo de vida útil.
+    Calcula prazos de manutenção, idade, garantia e ciclo de vida útil.
     """
     if df_inventario.empty:
         return pd.DataFrame()
         
     df_inv = df_inventario.copy()
     hoje = pd.Timestamp(datetime.today().date())
+
+    # =================================================================
+    # NOVO: Antecipando a tipagem de Aquisição e Garantia para a regra de MP
+    # =================================================================
+    if 'AQUISIÇÃO' in df_inv.columns:
+        df_inv['AQUISIÇÃO'] = pd.to_datetime(df_inv['AQUISIÇÃO'], errors='coerce')
+    if 'GARANTIA' in df_inv.columns:
+        df_inv['GARANTIA'] = pd.to_datetime(df_inv['GARANTIA'], errors='coerce')
+
+    # Cria a Flag de "Isento de MP (Novo ou Garantia)"
+    is_novo = (df_inv['AQUISIÇÃO'] >= (hoje - pd.DateOffset(months=6))) if 'AQUISIÇÃO' in df_inv.columns else False
+    is_garantia = (df_inv['GARANTIA'] >= hoje) if 'GARANTIA' in df_inv.columns else False
+    is_isento_nr = is_novo | is_garantia
 
     # 1. CRUZAMENTO PARA ACHAR A ÚLTIMA DATA DE CADA TIPO DE MP
     if not df_os_encerradas.empty:
@@ -203,7 +216,6 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
             "INSPEÇÃO E TESTE OPERACIONAL", "VALIDAÇÃO", "QUALIFICAÇÃO TÉRMICA"
         ]
         
-        # Filtra a base de OS e garante tipos corretos
         df_os_filtrado = df_os[
             df_os[col_id_os].notna() & 
             df_os[col_serie_os].notna() & 
@@ -212,7 +224,6 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
         
         df_os_filtrado[col_data_os] = pd.to_datetime(df_os_filtrado[col_data_os], errors='coerce')
         
-        # Agrupa pegando a data máxima (O equivalente ao CALCULATE(MAX()) do DAX)
         df_max_datas = df_os_filtrado.groupby(
             [col_id_os, col_serie_os, col_prog_os]
         )[col_data_os].max().unstack(level=col_prog_os).reset_index()
@@ -227,52 +238,52 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
         else:
             df_inv[col] = pd.to_datetime(df_inv[col], errors='coerce')
 
-    # 2. CÁLCULO DE STATUS (SWITCH TRUE)
+    # 2. CÁLCULO DE STATUS (Com a nova regra de Garantia/Novo)
     for tipo_mp in ['PREVENTIVA', 'CALIBRAÇÃO']:
         dias_desde = (hoje - df_inv[tipo_mp]).dt.days
         
         condicoes = [
+            is_isento_nr & df_inv[tipo_mp].isna(), # Regra de Isenção se não tiver MP
             df_inv[tipo_mp].isna(),
             dias_desde > 730,
             dias_desde > 365,
             dias_desde >= 320,
             dias_desde >= 275
         ]
-        
-        df_inv[f'Status {tipo_mp}'] = np.select(condicoes, ["NR", "+ 2a", "+ 1a", "em 45d", "em 3m"], default="OK")
-        df_inv[f'Ordem Status {tipo_mp}'] = np.select(condicoes, [1, 2, 3, 4, 5], default=6)
+        # Ordem 7 = Novo/Garantia
+        df_inv[f'Status {tipo_mp}'] = np.select(condicoes, ["Garantia/Novo", "NR", "+ 2a", "+ 1a", "em 45d", "em 3m"], default="OK")
+        df_inv[f'Ordem Status {tipo_mp}'] = np.select(condicoes, [7, 1, 2, 3, 4, 5], default=6)
 
     # Status Geral MP e Ordem MP
     if 'ÚLTIMA MP' in df_inv.columns:
         df_inv['ÚLTIMA MP'] = pd.to_datetime(df_inv['ÚLTIMA MP'], errors='coerce')
         dias_ultima_mp = (hoje - df_inv['ÚLTIMA MP']).dt.days
         cond_mp_geral = [
-            df_inv['ÚLTIMA MP'].isna(), dias_ultima_mp > 730, dias_ultima_mp > 365,
-            dias_ultima_mp >= 320, dias_ultima_mp >= 275
+            is_isento_nr & df_inv['ÚLTIMA MP'].isna(), # Regra de Isenção na Visão Geral
+            df_inv['ÚLTIMA MP'].isna(), 
+            dias_ultima_mp > 730, 
+            dias_ultima_mp > 365,
+            dias_ultima_mp >= 320, 
+            dias_ultima_mp >= 275
         ]
-        df_inv['Ordem Status MP'] = np.select(cond_mp_geral, [1, 2, 3, 4, 5], default=6)
+        df_inv['Ordem Status MP'] = np.select(cond_mp_geral, [7, 1, 2, 3, 4, 5], default=6)
     else:
-        df_inv['Ordem Status MP'] = 1
+        df_inv['Ordem Status MP'] = np.where(is_isento_nr, 7, 1)
 
     # 3. IDADE E VIDA ÚTIL
     if 'AQUISIÇÃO' in df_inv.columns:
-        df_inv['AQUISIÇÃO'] = pd.to_datetime(df_inv['AQUISIÇÃO'], errors='coerce')
-        
-        # Idade Numérica
         dias_totais_vida = (hoje - df_inv['AQUISIÇÃO']).dt.days
         df_inv['Idade Equipamento Num'] = np.round(dias_totais_vida / 365.25, 2)
         
         df_inv['Tempo ate Fim de Vida Num'] = 10 - df_inv['Idade Equipamento Num']
         df_inv['% Cumprimento Vida Útil Preciso'] = df_inv['Idade Equipamento Num'] / 10
         
-        # Faixas
         cond_idade = [
             df_inv['Idade Equipamento Num'] > 10, df_inv['Idade Equipamento Num'] >= 8,
             df_inv['Idade Equipamento Num'] >= 5, df_inv['Idade Equipamento Num'] >= 3
         ]
         df_inv['Faixa de Idade'] = np.select(cond_idade, ["> 10 anos", "8 a 10 anos", "5 a 8 anos", "3 a 5 anos"], default="0 a 3 anos")
         df_inv['Ordem Faixa Idade'] = np.select(cond_idade, [5, 4, 3, 2], default=1)
-        
     else:
         df_inv['Idade Equipamento Num'] = 0
         df_inv['Faixa de Idade'] = "0 a 3 anos"
@@ -280,7 +291,6 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
 
     # 4. GARANTIA
     if 'GARANTIA' in df_inv.columns:
-        df_inv['GARANTIA'] = pd.to_datetime(df_inv['GARANTIA'], errors='coerce')
         df_inv['Status Garantia'] = np.where(df_inv['GARANTIA'].isna() | (df_inv['GARANTIA'] < hoje), "Fora de Garantia", "Na Garantia")
     else:
         df_inv['Status Garantia'] = "Fora de Garantia"
