@@ -78,6 +78,46 @@ def carregar_os_encerradas():
 
     return df_final
 
+def carregar_todas_atividades(nome_pasta="03.Atividades"):
+    """
+    Lê todos os relatórios mensais de atividades na pasta e os empilha.
+    Garante que o histórico completo da O.S. esteja disponível.
+    """
+    pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
+    arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
+    
+    # Se a pasta tiver um nome ligeiramente diferente, tenta buscar
+    if not arquivos and nome_pasta == "03.Atividades":
+        return carregar_todas_atividades("03.Atividades_Recentes")
+        
+    if not arquivos:
+        return pd.DataFrame()
+        
+    lista_dfs = []
+    for arq in arquivos:
+        try:
+            df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
+            df_temp.columns = df_temp.columns.str.strip().str.upper()
+            lista_dfs.append(df_temp)
+        except Exception as e:
+            continue
+            
+    if not lista_dfs:
+        return pd.DataFrame()
+        
+    df_final = pd.concat(lista_dfs, ignore_index=True)
+    
+    # Padroniza a chave da OS para garantir o cruzamento lá no Dashboard
+    col_os = 'O.S.' if 'O.S.' in df_final.columns else ('OS' if 'OS' in df_final.columns else ('ORDEM DE SERVIÇO' if 'ORDEM DE SERVIÇO' in df_final.columns else None))
+    if col_os:
+        df_final = df_final.dropna(subset=[col_os])
+        df_final['OS_KEY'] = df_final[col_os].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
+        
+    # Remove linhas exatamente iguais (caso algum mês tenha sido exportado sobreposto)
+    df_final = df_final.drop_duplicates()
+    
+    return df_final
+
 
 # =====================================================================
 # 2. FUNÇÕES DE LIMPEZA E PADRONIZAÇÃO (A "Dim_Equipamentos")
