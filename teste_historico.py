@@ -1,0 +1,43 @@
+import streamlit as st
+import pandas as pd
+from engine_historico import obter_dados_historico
+import plotly.express as px
+
+st.set_page_config(page_title="Laboratório de Histórico", layout="wide")
+
+st.title("🧪 Laboratório de Testes: Histórico Retroativo")
+st.write("Esta página é isolada para testar a leitura dos CSVs de histórico.")
+
+if st.button("🚀 Processar Dados do Histórico"):
+    with st.spinner("Lendo arquivos..."):
+        df, mensagem = obter_dados_historico()
+        
+    st.info(f"Status do Motor: {mensagem}")
+    
+    if not df.empty:
+        # Métricas rápidas
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total de Snapshots", len(df))
+        col2.metric("Última Data", df['DT_SNAP'].max().strftime('%d/%m/%Y'))
+        col3.metric("Média Geral de Dias", f"{df['Media_Dias'].mean():.1f}")
+
+        # Gráfico de Volume
+        st.subheader("Evolução do Volume da Fila")
+        fig_vol = px.line(df, x='DT_SNAP', y='Volume_Fila', markers=True, title="Qtd de O.S. no Backlog")
+        st.plotly_chart(fig_vol, use_container_width=True)
+
+        # Gráfico de TMA
+        st.subheader("Evolução da Média de Dias em Aberto (TMA)")
+        fig_tma = px.line(df, x='DT_SNAP', y='Media_Dias', markers=True, title="Tempo Médio de Espera (Dias)")
+        st.plotly_chart(fig_tma, use_container_width=True)
+
+        # Tabela de Conferência
+        st.subheader("Dados Processados (Tabela)")
+        st.dataframe(df)
+    else:
+        st.error("O DataFrame retornou vazio. Verifique se os arquivos CSV estão na pasta correta.")
+
+st.sidebar.markdown("---")
+st.sidebar.write("### Instruções de Teste")
+st.sidebar.write("1. Garanta que os CSVs estão em `planilhas_gets/02.OS_Pendentes`.")
+st.sidebar.write("2. Clique no botão acima para processar.")
