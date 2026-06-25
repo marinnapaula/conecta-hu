@@ -1,6 +1,7 @@
 import streamlit as st
 import plotly.express as px
 from engine_historico import obter_dados_historico
+import plotly.graph_objects as go
 
 st.title("🧪 Laboratório de Histórico")
 
@@ -29,10 +30,35 @@ if st.button("🚀 Processar Dados"):
         st.subheader("Evolução do TMA")
         st.line_chart(df_line.set_index('DT_SNAP')[['Media_Dias']])
 
-        st.subheader("Gráfico de Backlog por Faixa")
-        fig = px.area(df_faixa, x='DT_SNAP', y='Volume', color='FAIXA_DIAS',
-                      category_orders={"FAIXA_DIAS": ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias", "Mais de 60 dias"]})
-        st.plotly_chart(fig, use_container_width=True)
+    if not df.empty:
+    st.subheader("Gráfico de Backlog por Faixa (Área Sobreposta)")
+    
+    # Criamos a figura base
+    fig = go.Figure()
+    
+    # Definimos a ordem das cores/faixas
+    faixas = ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias", "Mais de 60 dias"]
+    
+    # Adicionamos cada faixa como uma camada (trace)
+    for faixa in faixas:
+        df_faixa = df[df['FAIXA_DIAS'] == faixa]
+        fig.add_trace(go.Scatter(
+            x=df_faixa['DT_SNAP'], 
+            y=df_faixa['Volume'],
+            fill='tozeroy',  # Isso cria o preenchimento da área
+            mode='lines',    # Remove os pontos se quiser apenas a linha
+            name=faixa,
+            stackgroup=None  # IMPORTANTE: stackgroup=None desativa o empilhamento!
+        ))
+
+    # Ajustes de layout
+    fig.update_layout(
+        xaxis_title="Data",
+        yaxis_title="Volume",
+        hovermode="x unified"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
 
     else:
         st.error("Nenhum dado processado.")
