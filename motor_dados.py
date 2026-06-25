@@ -8,13 +8,11 @@ from datetime import datetime
 # 1. FUNÇÃO AUXILIAR SUPREMA (LEITURA BLINDADA GETS)
 # =====================================================================
 def get_arquivos(pasta_alvo):
-    """Pega todos os formatos possíveis de planilhas na pasta."""
     return glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + \
            glob.glob(os.path.join(pasta_alvo, "*.xls")) + \
            glob.glob(os.path.join(pasta_alvo, "*.csv"))
 
 def ler_arquivo_gets(caminho_arq, colunas_alvo):
-    """Lê o arquivo testando várias linhas de cabeçalho, suportando .xls falso (HTML) e CSVs brasileiros."""
     for skip in [5, 4, 3, 0, 1, 2, 6, 7, 8]:
         try:
             df = pd.DataFrame()
@@ -22,7 +20,6 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
             
             if extensao.endswith('.xlsx'):
                 df = pd.read_excel(caminho_arq, skiprows=skip)
-                
             elif extensao.endswith('.xls'):
                 try:
                     df = pd.read_excel(caminho_arq, skiprows=skip)
@@ -30,8 +27,7 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
                     try:
                         dfs = pd.read_html(caminho_arq, skiprows=skip, decimal=',', thousands='.')
                         if dfs: df = dfs[0]
-                    except:
-                        pass
+                    except: pass
             else:
                 try:
                     df = pd.read_csv(caminho_arq, skiprows=skip, sep=';', encoding='latin1', low_memory=False)
@@ -41,11 +37,8 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
 
             if not df.empty:
                 df.columns = df.columns.astype(str).str.strip().str.upper()
-                if any(c in df.columns for c in colunas_alvo):
-                    return df
-        except:
-            continue
-            
+                if any(c in df.columns for c in colunas_alvo): return df
+        except: continue
     return pd.DataFrame()
 
 # =====================================================================
@@ -58,9 +51,9 @@ MAPA_COLUNAS_UNIVERSAL = {
     'TIPO MANUTENÇÃO': 'CLASSE', 'TIPO DA O.S.': 'CLASSE', 'TIPO DE MANUTENÇÃO': 'CLASSE',
     'PROGRAMA': 'PROGRAMA MP', 'TIPO DE PREVENTIVA': 'PROGRAMA MP',
     'LOCALIZAÇÃO': 'LOCALIZAÇÃO FÍSICA', 'SETOR': 'LOCALIZAÇÃO FÍSICA',
-    'EQUIPAMENTO': 'DESCRIÇÃO', 'TIPO EQUIPAMENTO': 'DESCRIÇÃO', 'NOME DO EQUIPAMENTO': 'DESCRIÇÃO'
+    'EQUIPAMENTO': 'DESCRIÇÃO', 'TIPO EQUIPAMENTO': 'DESCRIÇÃO', 'NOME DO EQUIPAMENTO': 'DESCRIÇÃO', 'EQUIPAMENTO CRÍTICO': 'CRITICO', 'EQUIPAMENTO CRITICO': 'CRITICO'
 }
-COLUNAS_BUSCA_OS = list(MAPA_COLUNAS_UNIVERSAL.keys()) + ['O.S.']
+COLUNAS_BUSCA_OS = list(MAPA_COLUNAS_UNIVERSAL.keys()) + ['O.S.', 'CRITICO']
 
 def carregar_mais_recente(nome_pasta):
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
@@ -72,17 +65,17 @@ def carregar_mais_recente(nome_pasta):
     colunas = ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO'] if "Invent" in nome_pasta else COLUNAS_BUSCA_OS
     df = ler_arquivo_gets(arq_recente, colunas)
     if not df.empty:
+        df = df.rename(columns=MAPA_COLUNAS_UNIVERSAL)
         df['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq_recente), unit='s')
     return df
 
 def carregar_os_encerradas():
-    """Lê a pasta 01 E a pasta 05 para puxar o histórico COMPLETO (2023 a 2026)."""
     pasta_01 = os.path.join(os.getcwd(), "planilhas_gets", "01.OS_Encerradas")
     pasta_05a = os.path.join(os.getcwd(), "planilhas_gets", "05. Atendimento de OS")
     pasta_05b = os.path.join(os.getcwd(), "planilhas_gets", "05.Atendimento_de_OS")
     
     arquivos = get_arquivos(pasta_01) + get_arquivos(pasta_05a) + get_arquivos(pasta_05b)
-    arquivos = list(set(arquivos)) # Remove duplicidades caso existam
+    arquivos = list(set(arquivos))
     
     if not arquivos: return pd.DataFrame()
 
@@ -119,7 +112,6 @@ def carregar_os_encerradas():
     return df_final
 
 def carregar_todas_atividades(nome_pasta="03.Atividades"):
-    """Voltou para a pasta 03.Atividades, onde os logs técnicos de verdade estão."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = get_arquivos(pasta_alvo)
     
@@ -135,8 +127,7 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
         df_temp = ler_arquivo_gets(arq, colunas_busca_atividades)
         if not df_temp.empty: 
             col_os_local = next((c for c in colunas_busca_atividades if c in df_temp.columns), None)
-            if col_os_local:
-                df_temp = df_temp.rename(columns={col_os_local: 'O.S.'})
+            if col_os_local: df_temp = df_temp.rename(columns={col_os_local: 'O.S.'})
             lista_dfs.append(df_temp)
             
     if not lista_dfs: return pd.DataFrame()
@@ -150,6 +141,7 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     return df_final
 
 def gerar_curva_backlog():
+    """MÁQUINA DO TEMPO: Analisa historicamente a fila pendente e extrai métricas detalhadas (Faixa de dias, Críticas, Tempo Médio)."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
     arquivos = get_arquivos(pasta_alvo)
     if not arquivos: return pd.DataFrame()
@@ -160,13 +152,42 @@ def gerar_curva_backlog():
         if not df_temp.empty:
             df_temp = df_temp.rename(columns=MAPA_COLUNAS_UNIVERSAL)
             if 'O.S.' in df_temp.columns:
-                qtd_os = df_temp['O.S.'].dropna().count()
+                df_valid = df_temp.dropna(subset=['O.S.']).copy()
+                qtd_os = len(df_valid)
                 dt_snap = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
-                lista_historico.append({'Data': dt_snap, 'Volume Fila': int(qtd_os)})
+                
+                # Extraindo O.S. Críticas do passado
+                criticas = 0
+                if 'CRITICO' in df_valid.columns:
+                    criticas = len(df_valid[df_valid['CRITICO'].astype(str).str.upper().str.strip() == 'SIM'])
+                
+                # Extraindo Tempo Médio e Faixas de Dias do passado
+                tm_aberta = 0
+                f_0_5 = f_6_15 = f_16_30 = f_31_60 = f_60_mais = 0
+                
+                if 'ABERTURA' in df_valid.columns:
+                    datas_ab = pd.to_datetime(df_valid['ABERTURA'], errors='coerce', dayfirst=True)
+                    dias_aberto = (dt_snap - datas_ab).dt.days
+                    dias_aberto = dias_aberto[dias_aberto >= 0] # Remove anomalias temporais
+                    
+                    if not dias_aberto.empty:
+                        tm_aberta = dias_aberto.mean()
+                        f_0_5 = len(dias_aberto[dias_aberto <= 5])
+                        f_6_15 = len(dias_aberto[(dias_aberto > 5) & (dias_aberto <= 15)])
+                        f_16_30 = len(dias_aberto[(dias_aberto > 15) & (dias_aberto <= 30)])
+                        f_31_60 = len(dias_aberto[(dias_aberto > 30) & (dias_aberto <= 60)])
+                        f_60_mais = len(dias_aberto[dias_aberto > 60])
+                
+                lista_historico.append({
+                    'Data': dt_snap, 'Volume Fila': int(qtd_os), 'Críticas': int(criticas),
+                    'Tempo Médio Aberta': tm_aberta, '0 a 5 dias': f_0_5, '6 a 15 dias': f_6_15,
+                    '16 a 30 dias': f_16_30, '31 a 60 dias': f_31_60, 'Mais de 60 dias': f_60_mais
+                })
             
     if not lista_historico: return pd.DataFrame()
     df_hist = pd.DataFrame(lista_historico)
-    df_hist = df_hist.groupby('Data')['Volume Fila'].max().reset_index().sort_values(by='Data')
+    # Agrupa por data pegando a média se houver 2 relatórios no mesmo dia
+    df_hist = df_hist.groupby('Data').mean().reset_index().sort_values(by='Data')
     return df_hist
 
 # =====================================================================
