@@ -749,11 +749,3 @@ with tab_historico:
                 fig_crit = px.area(df_curva_fila, x='Data', y='Críticas', color_discrete_sequence=['#a9d18e'])
                 fig_crit.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
                 st.plotly_chart(fig_crit, use_container_width=True)
-# Exemplo de como chamar
-df_historico = obter_dados_historico()
-
-if not df_historico.empty:
-    # Aqui você monta o seu gráfico usando o df_historico
-    st.line_chart(df_historico.set_index('DT_SNAP_REF')[['Volume_Fila', 'Media_Dias']])
-else:
-    st.warning("Nenhum dado histórico encontrado para processar.")
