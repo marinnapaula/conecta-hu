@@ -324,7 +324,7 @@ with tab_fila:
 # =====================================================================
 with tab_indicadores:
     # --- CÁLCULO DAS MÉTRICAS DE TMA (ENCERRADAS) ---
-    tma_g_12 = 0; tma_mc_12 = 0
+    tma_g_12 = 0; tma_mc_12 = 0; tma_mp_12 = 0
     if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
         df_e = df_enc.copy()
         df_e['DURACAO'] = (df_e['ENCERRAMENTO'] - df_e['ABERTURA']).dt.days
@@ -338,6 +338,9 @@ with tab_indicadores:
         if col_classe_e:
             cond_mc = df_12m[col_classe_e].astype(str).str.upper().str.contains('CORR|MC|QUEBRA')
             tma_mc_12 = df_12m[cond_mc]['DURACAO'].mean() if not df_12m[cond_mc].empty else 0
+            
+            cond_mp = df_12m[col_classe_e].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA')
+            tma_mp_12 = df_12m[cond_mp]['DURACAO'].mean() if not df_12m[cond_mp].empty else 0
 
     # --- CÁLCULO DAS MÉTRICAS DE FILA (PENDENTES) ---
     tot_pend = 0; tot_crit = 0; tm_aberta_geral = 0; tm_aberta_mc = 0
@@ -356,11 +359,12 @@ with tab_indicadores:
     # --- LINHA 1: CARTÕES RESUMO UNIFICADOS (SUTIS E DIRETOS) ---
     st.markdown("<h4 style='color: #154899; margin-bottom: 5px; margin-top: 5px;'>Visão Geral de Desempenho e Fila</h4>", unsafe_allow_html=True)
     
-    ind_c1, ind_c2, ind_c3, ind_c4 = st.columns(4)
-    ind_c1.metric("TMA Geral (Últimos 12 Meses)", f"{tma_g_12:.1f} Dias")
-    ind_c2.metric("TMA Corretiva (Últimos 12 Meses)", f"{tma_mc_12:.1f} Dias")
-    ind_c3.metric("Total de O.S. Pendentes", f"{tot_pend}", f"{tot_crit} Críticas", delta_color="inverse" if tot_crit > 0 else "normal")
-    ind_c4.metric("Tempo Médio de Espera (Abertas)", f"{tm_aberta_geral:.1f} Dias", f"Apenas Corretivas: {tm_aberta_mc:.1f} Dias", delta_color="inverse" if tm_aberta_geral > 0 else "normal")
+    ind_c1, ind_c2, ind_c3, ind_c4, ind_c5 = st.columns(5)
+    ind_c1.metric("TMA Geral", f"{tma_g_12:.1f} Dias", help="Tempo Médio de Atendimento Geral (Calculado nos últimos 12 meses)")
+    ind_c2.metric("TMA Corretiva", f"{tma_mc_12:.1f} Dias", help="Tempo Médio de Atendimento para O.S. Corretivas (Calculado nos últimos 12 meses)")
+    ind_c3.metric("TMA Programada", f"{tma_mp_12:.1f} Dias", help="Tempo Médio de Atendimento para O.S. Programadas/Preventivas (Calculado nos últimos 12 meses)")
+    ind_c4.metric("O.S. Pendentes", f"{tot_pend}", f"{tot_crit} Críticas", delta_color="inverse" if tot_crit > 0 else "normal", help="Volume total de Ordens de Serviço que estão abertas na fila atualmente")
+    ind_c5.metric("Espera Média (Abertas)", f"{tm_aberta_geral:.1f} Dias", f"Corretivas: {tm_aberta_mc:.1f} d", delta_color="inverse" if tm_aberta_geral > 0 else "normal", help="Média de dias em aberto considerando todas as O.S. que ainda estão na fila")
 
     st.markdown("---")
     
