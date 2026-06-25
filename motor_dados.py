@@ -149,72 +149,45 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     return df_final
 
 def gerar_curva_backlog():
-    """MÁQUINA DO TEMPO: Lê a coluna interna SNAPSHOT_DATE de cada linha do histórico para calcular o backlog real."""
     pastas_busca = ["02.OS_Pendentes", "OS_Pendentes_Historico", "OS Pendentes Historico"]
-    
     arquivos = []
     for p in pastas_busca:
         pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", p)
         arquivos.extend(get_arquivos(pasta_alvo))
-        
+    
     arquivos = list(set(arquivos))
     if not arquivos: return pd.DataFrame()
     
     lista_dfs = []
     for arq in arquivos:
-        df_temp = ler_arquivo_gets(arq, COLUNAS_BUSCA_OS)
-        if not df_temp.empty:
-            df_temp = df_temp.rename(columns=MAPA_COLUNAS_UNIVERSAL)
-            if 'O.S.' in df_temp.columns:
-                df_temp = df_temp.dropna(subset=['O.S.']).copy()
-                
-                # Procura a coluna de snapshot gravada de forma nativa nas linhas pelo ETL
-                c_snap = next((c for c in ['SNAPSHOT_DATE', 'SNAPSHOT_DT'] if c in df_temp.columns), None)
-                if c_snap:
-                    df_temp['DT_SNAP_REF'] = pd.to_datetime(df_temp[c_snap], errors='coerce').dt.normalize()
-                else:
-                    # Fallback robusto se for um arquivo bruto sem coluna interna
-                    df_temp['DT_SNAP_REF'] = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
-                    
-                lista_dfs.append(df_temp[['O.S.', 'ABERTURA', 'CRITICO', 'DT_SNAP_REF']])
+        # Lê sem pular linhas fixas para garantir que achamos o cabeçalho
+        df_temp = pd.read_csv(arq, sep=',', encoding='utf-8', low_memory=False)
+        if len(df_temp.columns) < 5: # Fallback para separador ponto e vírgula
+            df_temp = pd.read_csv(arq, sep=';', encoding='latin1', low_memory=False)
+            
+        df_temp.columns = df_temp.columns.str.strip().str.upper()
+        
+        if 'O.S.' in df_temp.columns and 'SNAPSHOT_DATE' in df_temp.columns:
+            # FORÇA A CONVERSÃO DE DATA AQUI
+            df_temp['DT_SNAP_REF'] = pd.to_datetime(df_temp['SNAPSHOT_DATE'], errors='coerce')
+            df_temp['ABERTURA_CLEAN'] = pd.to_datetime(df_temp['ABERTURA'], errors='coerce')
+            
+            # Remove linhas onde a data falhou
+            df_temp = df_temp.dropna(subset=['DT_SNAP_REF', 'ABERTURA_CLEAN'])
+            
+            df_temp['DIAS_ABERTO_HIST'] = (df_temp['DT_SNAP_REF'] - df_temp['ABERTURA_CLEAN']).dt.days
+            lista_dfs.append(df_temp[['O.S.', 'DIAS_ABERTO_HIST', 'DT_SNAP_REF', 'CRITICO']])
                 
     if not lista_dfs: return pd.DataFrame()
     df_total = pd.concat(lista_dfs, ignore_index=True)
-    df_total = df_total.dropna(subset=['DT_SNAP_REF', 'ABERTURA'])
     
-    # Tratamento blindado da coluna Abertura
-    datas_texto = pd.to_datetime(df_total['ABERTURA'], errors='coerce', dayfirst=True)
-    numeros = pd.to_numeric(df_total['ABERTURA'], errors='coerce')
-    datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
-    df_total['ABERTURA_CLEAN'] = datas_texto.fillna(datas_excel)
+    # Agrupa e reconstrói
+    resultado = df_total.groupby('DT_SNAP_REF').agg(
+        Volume_Fila=('O.S.', 'count'),
+        Media_Dias=('DIAS_ABERTO_HIST', 'mean')
+    ).reset_index()
     
-    df_total = df_total.dropna(subset=['ABERTURA_CLEAN'])
-    
-    # Calcula os dias em aberto no exato dia em que o snapshot foi registrado!
-    df_total['DIAS_ABERTO_HIST'] = (df_total['DT_SNAP_REF'] - df_total['ABERTURA_CLEAN']).dt.days
-    df_total = df_total[df_total['DIAS_ABERTO_HIST'] >= 0]
-    
-    # Agrupa e reconstrói os pontos diários dos gráficos exatamente como o DAX
-    linhas_historico = []
-    for data_ref, group in df_total.groupby('DT_SNAP_REF'):
-        qtd_os = len(group)
-        criticas = len(group[group['CRITICO'].astype(str).str.upper().str.strip() == 'SIM'])
-        tm_aberta = group['DIAS_ABERTO_HIST'].mean()
-        
-        f_0_5 = len(group[group['DIAS_ABERTO_HIST'] <= 5])
-        f_6_15 = len(group[(group['DIAS_ABERTO_HIST'] > 5) & (group['DIAS_ABERTO_HIST'] <= 15)])
-        f_16_30 = len(group[(group['DIAS_ABERTO_HIST'] > 15) & (group['DIAS_ABERTO_HIST'] <= 30)])
-        f_31_60 = len(group[(group['DIAS_ABERTO_HIST'] > 30) & (group['DIAS_ABERTO_HIST'] <= 60)])
-        f_60_mais = len(group[group['DIAS_ABERTO_HIST'] > 60])
-        
-        linhas_historico.append({
-            'Data': data_ref, 'Volume Fila': int(qtd_os), 'Críticas': int(criticas),
-            'Tempo Médio Aberta': tm_aberta, '0 a 5 dias': f_0_5, '6 a 15 dias': f_6_15,
-            '16 a 30 dias': f_16_30, '31 a 60 dias': f_31_60, 'Mais de 60 dias': f_60_mais
-        })
-        
-    if not linhas_historico: return pd.DataFrame()
-    return pd.DataFrame(linhas_historico).sort_values('Data')
+    return resultado.sort_values('DT_SNAP_REF')
 
 # =====================================================================
 # 3. MOTOR DE TRATAMENTO E INTELIGÊNCIA (INVENTÁRIO)
