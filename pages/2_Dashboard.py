@@ -96,7 +96,7 @@ st.sidebar.markdown("<h2 style='text-align: center; color: #154899;'>Filtros Glo
 st.sidebar.markdown("---")
 
 locais_disponiveis = sorted(df_inv['LOCALIZAÇÃO FÍSICA'].dropna().unique()) if not df_inv.empty and 'LOCALIZAÇÃO FÍSICA' in df_inv.columns else []
-tipos_disponiveis = sorted(df_inv['DESCRIÇÃO'].dropna().unique()) if not df_inv.empty White and 'DESCRIÇÃO' in df_inv.columns else []
+tipos_disponiveis = sorted(df_inv['DESCRIÇÃO'].dropna().unique()) if not df_inv.empty and 'DESCRIÇÃO' in df_inv.columns else []
 
 filtro_local = st.sidebar.multiselect("Localização", locais_disponiveis, placeholder="Todos os setores")
 filtro_tipo = st.sidebar.multiselect("Tipo de Equipamento", tipos_disponiveis, placeholder="Todos os tipos")
@@ -142,12 +142,14 @@ else:
     df_enc = pd.DataFrame()
 
 # =====================================================================
-# ESTRUTURA REORDENADA E CONSOLIDADA DE ABAS (6 ABAS NO TOTAL)
+# ESTRUTURA REORDENADA E CONSOLIDADA (8 ABAS DEFINITIVAS)
 # =====================================================================
-tab_indicadores, tab_produtividade, tab_calor, tab_parque, tab_financeiro, tab_historico = st.tabs([
+tab_indicadores, tab_fila, tab_produtividade, tab_calor, tab_mapa, tab_parque, tab_financeiro, tab_historico = st.tabs([
     "Indicadores", 
+    "Acompanhamento de O.S. Pendentes", 
     "Produtividade",
     "Mapa de Calor",
+    "Mapa do Parque",
     "Ciclo de Vida do Parque", 
     "Gestão Financeira",
     "Histórico"
@@ -175,7 +177,7 @@ with tab_indicadores:
     tot_pend = 0; tot_crit = 0; tm_aberta_geral = 0; tm_aberta_mc = 0
     if not df_pend.empty:
         tot_pend = len(df_pend)
-        col_critico_ind = get_col(df_pend, ['EQUIPAMENTO CRÍTICO', 'EQUIPAMENTO CRITICO'])
+        col_critico_ind = get_col(df_pend, ['CRITICO', 'EQUIPAMENTO CRÍTICO', 'EQUIPAMENTO CRITICO'])
         if col_critico_ind:
             tot_crit = len(df_pend[df_pend[col_critico_ind].astype(str).str.upper().str.strip() == 'SIM'])
         tm_aberta_geral = df_pend['DIAS_EM_ABERTO'].mean()
@@ -229,7 +231,137 @@ with tab_indicadores:
                     st.plotly_chart(fig_tp, use_container_width=True)
 
 # =====================================================================
-# TAB 2: PRODUTIVIDADE (FLUXO HISTÓRICO)
+# TAB 2: ACOMPANHAMENTO DE O.S. PENDENTES
+# =====================================================================
+with tab_fila:
+    if not df_pend.empty:
+        df_p = df_pend.copy()
+        col_os = get_col(df_p, ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS', 'OS_KEY'])
+        col_abertura = get_col(df_p, ['ABERTURA', 'DATA ABERTURA'])
+        col_critico = get_col(df_p, ['CRITICO', 'EQUIPAMENTO CRÍTICO', 'EQUIPAMENTO CRITICO'])
+        col_parado = get_col(df_p, ['EQUIPAMENTO PARADO', 'PARADO'])
+        col_local = get_col(df_p, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO', 'LOCALIZACAO_INVENTARIO'])
+        col_serie = get_col(df_p, ['N. SÉRIE', 'N.º SÉRIE', 'SÉRIE'])
+        col_tipo = get_col(df_p, ['TIPO EQUIPAMENTO', 'EQUIPAMENTO', 'DESCRIÇÃO'])
+        col_estado = get_col(df_p, ['ESTADO', 'ESTADO DA O.S.'])
+        col_executor = get_col(df_p, ['EXECUTOR', 'RESPONSÁVEL'])
+        
+        if col_critico: df_p[col_critico] = df_p[col_critico].astype(str).str.upper().str.strip()
+        if col_parado: df_p[col_parado] = df_p[col_parado].astype(str).str.upper().str.strip()
+
+        st.markdown("<h3 style='color: #154899; margin-top: 15px;'> Fila de O.S Pendentes (Centro de Comando)</h3>", unsafe_allow_html=True)
+
+        with st.container(border=True):
+            r1, r2, r3, r4 = st.columns(4)
+            f_num_os = r1.text_input("Número da O.S.", placeholder="Digite o número...")
+            f_num_serie = r2.text_input("Número de Série", placeholder="Digite o S/N...")
+            f_faixa_dias = r3.multiselect("Faixa de Dias", sorted(df_p['FAIXA_DIAS'].unique()))
+            f_local_fisico = r4.multiselect("Localização Física", sorted(df_p[col_local].dropna().unique()) if col_local else [])
+            
+            r5, r6, r7, r8 = st.columns(4)
+            f_tipo_equip = r5.multiselect("Tipo de Equipamento", sorted(df_p[col_tipo].dropna().unique()) if col_tipo else [])
+            f_estado_os = r6.multiselect("Status da O.S.", sorted(df_p[col_estado].dropna().unique()) if col_estado else [])
+            f_eq_parado = r7.selectbox("Equipamento Parado?", ["Todos", "SIM", "NÃO"])
+            f_eq_critico = r8.selectbox("Equipamento Crítico?", ["Todos", "SIM", "NÃO"])
+
+        df_f = df_p.copy()
+        if f_num_os and col_os: df_f = df_f[df_f[col_os].astype(str).str.contains(f_num_os, case=False, na=False)]
+        if f_num_serie and col_serie: df_f = df_f[df_f[col_serie].astype(str).str.contains(f_num_serie, case=False, na=False)]
+        if f_faixa_dias: df_f = df_f[df_f['FAIXA_DIAS'].isin(f_faixa_dias)]
+        if f_local_fisico and col_local: df_f = df_f[df_f[col_local].isin(f_local_fisico)]
+        if f_tipo_equip and col_tipo: df_f = df_f[df_f[col_tipo].isin(f_tipo_equip)]
+        if f_estado_os and col_estado: df_f = df_f[df_f[col_estado].isin(f_estado_os)]
+        if f_eq_parado != "Todos" and col_parado: df_f = df_f[df_f[col_parado] == f_eq_parado]
+        if f_eq_critico != "Todos" and col_critico: df_f = df_f[df_f[col_critico] == f_eq_critico]
+
+        df_f = df_f.sort_values(by='DIAS_EM_ABERTO', ascending=False)
+
+        st.markdown(f"**Registros Filtrados:** {len(df_f)} ordens pendentes localizadas.")
+        colunas_grade = [c for c in [col_os, col_tipo, col_serie, col_local, 'DIAS_EM_ABERTO', col_estado, col_executor] if c in df_f.columns]
+        st.dataframe(
+            df_f[colunas_grade], use_container_width=True, hide_index=True, height=240,
+            column_config={
+                "DIAS_EM_ABERTO": st.column_config.ProgressColumn("Tempo de Espera", format="%d dias", min_value=0, max_value=int(df_p['DIAS_EM_ABERTO'].max()) if len(df_p) > 0 else 100),
+                col_os: st.column_config.TextColumn("Nº O.S.")
+            }
+        )
+
+        st.markdown("---")
+        st.markdown("<h3 style='color: #154899;'>Detalhamento da O.S</h3>", unsafe_allow_html=True)
+        
+        if not df_f.empty and col_os:
+            os_alvo = st.selectbox("Escolha uma Ordem de Serviço da lista para abrir a ficha completa:", options=df_f[col_os].astype(str).unique())
+            
+            if os_alvo:
+                dados_linha = df_f[df_f[col_os].astype(str) == os_alvo].iloc[0]
+                with st.container(border=True):
+                    f_col_t, f_col_b1, f_col_b2 = st.columns([2, 1, 1])
+                    f_col_t.markdown(f"#### Ficha de Atendimento - O.S. № {os_alvo}")
+                    
+                    num_serie_real = dados_linha.get(col_serie, 'N/I')
+                    num_pat_real = dados_linha.get('PATRIMÔNIO', dados_linha.get('IDENTIFICADOR', 'N/I'))
+                    f_col_t.markdown(f"**Equipamento:** {dados_linha.get(col_tipo, 'N/I')} | **Nº Série:** {num_serie_real} | **Patrimônio:** {num_pat_real}")
+                    
+                    p_status = "🔴 PARADO" if str(dados_linha.get(col_parado, '')).upper() == 'SIM' else "🟢 EM OPERAÇÃO"
+                    c_status = "⚠️ ALTA CRITICIDADE" if str(dados_linha.get(col_critico, '')).upper() == 'SIM' else "ℹ️ CRITICIDADE NORMAL"
+                    f_col_b1.markdown(f"**Disponibilidade:**<br>`{p_status}`", unsafe_allow_html=True)
+                    f_col_b2.markdown(f"**Criticidade:**<br>`{c_status}`", unsafe_allow_html=True)
+                    st.divider()
+                    
+                    d1, d2, d3 = st.columns(3)
+                    dt_ab_str = dados_linha[col_abertura].strftime('%d/%m/%Y') if pd.notnull(dados_linha.get(col_abertura)) else 'N/I'
+                    
+                    d1.markdown(f"**📅 Abertura:** {dt_ab_str}")
+                    d1.markdown(f"**⏳ Dias na Fila:** {dados_linha.get('DIAS_EM_ABERTO', 0)} dias")
+                    d2.markdown(f"**📍 Localização:** {dados_linha.get(col_local, 'N/I')}")
+                    d3.markdown(f"**⚙️ Status da O.S.:** {dados_linha.get(col_estado, 'N/I')}")
+                    
+                    st.markdown("<br><h5 style='color: #32A347;'>Detalhamento Técnico</h5>", unsafe_allow_html=True)
+                    
+                    if not df_atividades.empty:
+                        df_at_temp = df_atividades.copy()
+                        os_busca = str(os_alvo).replace('.0', '').strip()
+                        
+                        df_historico_os = df_at_temp[df_at_temp['OS_KEY'] == os_busca] if 'OS_KEY' in df_at_temp.columns else pd.DataFrame()
+                        
+                        if not df_historico_os.empty:
+                            col_dt_inicio = get_col(df_historico_os, ['DATA INÍCIO', 'DATA INICIO', 'INÍCIO', 'INICIO', 'DATA DA EXECUÇÃO', 'DATA'])
+                            col_atividade = get_col(df_historico_os, ['ATIVIDADE', 'ATIVIDADES', 'TIPO ATIVIDADE'])
+                            col_servico = get_col(df_historico_os, ['SERVIÇO EXECUTADO', 'SERVICO EXECUTADO', 'SERVIÇO', 'DESCRIÇÃO', 'HISTÓRICO'])
+                            col_exec_act = get_col(df_historico_os, ['EXECUTOR', 'TÉCNICO', 'RESPONSÁVEL', 'TECNICO'])
+                            
+                            cols_print_act = [c for c in [col_dt_inicio, col_exec_act, col_atividade, col_servico] if c]
+                            df_print_act = df_historico_os[cols_print_act].copy()
+                            
+                            if col_dt_inicio:
+                                df_print_act[col_dt_inicio] = pd.to_datetime(df_print_act[col_dt_inicio], errors='coerce')
+                                df_print_act = df_print_act.sort_values(by=col_dt_inicio, ascending=False)
+                                df_print_act[col_dt_inicio] = df_print_act[col_dt_inicio].dt.strftime('%d/%m/%Y %H:%M')
+                                
+                            config_colunas = {}
+                            if col_dt_inicio: config_colunas[col_dt_inicio] = st.column_config.TextColumn("Atualização", width="medium")
+                            if col_exec_act: config_colunas[col_exec_act] = st.column_config.TextColumn("Executor", width="medium")
+                            if col_atividade: config_colunas[col_atividade] = st.column_config.TextColumn("Atividade", width="medium")
+                            if col_servico: config_colunas[col_servico] = st.column_config.TextColumn("Serviço Executado", width="large")
+                                
+                            st.dataframe(df_print_act, use_container_width=True, hide_index=True, column_config=config_colunas)
+                            
+                            with st.expander("Ver textos de Serviços Executados completos"):
+                                for _, lista_row in df_print_act.iterrows():
+                                    t_ini = lista_row.get(col_dt_inicio, 'N/I')
+                                    t_exec = lista_row.get(col_exec_act, 'N/I')
+                                    t_txt = lista_row.get(col_servico, 'Sem descrição detalhada')
+                                    st.markdown(f"**[{t_ini}] - Executor: {t_exec}**")
+                                    st.info(t_txt)
+                        else:
+                            st.info("Esta O.S. está na fila aguardando o primeiro apontamento técnico.")
+                    else:
+                        st.info("Logs indisponíveis na pasta '03.Atividades'.")
+        else:
+            st.warning("Ajuste a busca para carregar as fichas técnicas.")
+
+# =====================================================================
+# TAB 3: PRODUTIVIDADE (FLUXO HISTÓRICO)
 # =====================================================================
 with tab_produtividade:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Análise de Produtividade e Entregas Mensais</h3>", unsafe_allow_html=True)
@@ -339,7 +471,7 @@ with tab_produtividade:
         st.warning("Não há histórico de O.S. Encerradas para calcular a produtividade.")
 
 # =====================================================================
-# TAB 3: MAPA DE CALOR (MATRIZ DE CONFORMIDADE)
+# TAB 4: MAPA DE CALOR (MATRIZ DE CONFORMIDADE)
 # =====================================================================
 with tab_calor:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Mapa de Calor de Manutenção Programada</h3>", unsafe_allow_html=True)
@@ -402,7 +534,56 @@ with tab_calor:
         st.warning("Inventário não carregado. Verifique os dados.")
 
 # =====================================================================
-# TAB 4: CICLO DE VIDA DO PARQUE
+# TAB 5: MAPA DO PARQUE TECNOLÓGICO (VISÃO EXECUTIVA TREEMAP)
+# =====================================================================
+with tab_mapa:
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Mapa do Parque Tecnológico</h3>", unsafe_allow_html=True)
+    st.markdown("**Monitoramento de Disponibilidade e Concentração de Falhas por Setor | HU-UNIVASF**")
+
+    tot_ativos_mapa = len(df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']) if not df_inv.empty else 0
+    tot_parados_mapa = 0
+    
+    if not df_pend.empty:
+        col_parado_mapa = get_col(df_pend, ['EQUIPAMENTO PARADO', 'PARADO'])
+        if col_parado_mapa:
+            tot_parados_mapa = len(df_pend[df_pend[col_parado_mapa].astype(str).str.upper().str.strip() == 'SIM'])
+            
+    taxa_disp = ((tot_ativos_mapa - tot_parados_mapa) / tot_ativos_mapa * 100) if tot_ativos_mapa > 0 else 0
+    
+    map_c1, map_c2, map_c3 = st.columns(3)
+    map_c1.metric("Total de Ativos (Inventário)", f"{tot_ativos_mapa:,}".replace(",", "."))
+    map_c2.metric("Equipamentos Parados (Corretiva)", f"{tot_parados_mapa}", "Ação Imediata", delta_color="inverse")
+    map_c3.metric("Taxa de Disponibilidade Global", f"{taxa_disp:.1f}%", "Meta: 95.0%", delta_color="normal" if taxa_disp >= 95 else "inverse")
+
+    st.markdown("<br><h4 style='color: #154899;'>Concentração de O.S. por Localização Física</h4>", unsafe_allow_html=True)
+    
+    if not df_pend.empty:
+        col_local_mapa = get_col(df_pend, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO', 'LOCALIZACAO_INVENTARIO'])
+        if col_local_mapa:
+            df_tree = df_pend.groupby(col_local_mapa).size().reset_index(name='FALHAS')
+            df_tree = df_tree[df_tree['FALHAS'] > 0]
+            
+            if not df_tree.empty:
+                fig_tree = px.treemap(
+                    df_tree, 
+                    path=[px.Constant("HU-UNIVASF"), col_local_mapa], 
+                    values='FALHAS', 
+                    color='FALHAS', 
+                    color_continuous_scale='Reds',
+                    title="Mapeamento de Áreas Críticas (Volume de Falhas Abertas)"
+                )
+                fig_tree.update_traces(root_color="lightgrey")
+                fig_tree.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=550)
+                st.plotly_chart(fig_tree, use_container_width=True)
+            else:
+                st.success("Não há falhas pendentes vinculadas a locais físicos.")
+        else:
+            st.info("Coluna de Localização não identificada na Fila de O.S.")
+    else:
+        st.success("A fila de O.S. está vazia. O parque está 100% operacional!")
+
+# =====================================================================
+# TAB 6: CICLO DE VIDA DO PARQUE
 # =====================================================================
 with tab_parque:
     if not df_inv.empty:
@@ -441,7 +622,7 @@ with tab_parque:
             st.plotly_chart(fig_pie_mp, use_container_width=True)
 
 # =====================================================================
-# TAB 5: GESTÃO FINANCEIRA
+# TAB 7: GESTÃO FINANCEIRA
 # =====================================================================
 with tab_financeiro:
     if not df_inv.empty:
@@ -483,102 +664,77 @@ with tab_financeiro:
                 st.plotly_chart(fig_curva, use_container_width=True)
 
 # =====================================================================
-# TAB 6: HISTÓRICO COMPLETO (CENTRAL DE INVESTIGAÇÃO DA O.S.)
+# TAB 8: HISTÓRICO GERAL (O ESPELHO DO POWER BI)
 # =====================================================================
 with tab_historico:
-    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Central de Investigação e Linha do Tempo da O.S.</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico (Tendência de Backlog e Produtividade)</h3>", unsafe_allow_html=True)
     
-    # Consolida chaves de busca unificando ordens da Fila Pendente e das Encerradas Históricas
-    lista_completa_os = []
-    if not df_pend_bruto.empty:
-        c_os_p = get_col(df_pend_bruto, ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS', 'OS_KEY'])
-        if c_os_p: lista_completa_os.extend(df_pend_bruto[c_os_p].astype(str).unique())
-    if not df_enc_bruto.empty:
-        if 'O.S.' in df_enc_bruto.columns: lista_completa_os.extend(df_enc_bruto['O.S.'].astype(str).unique())
+    r1c1, r1c2 = st.columns(2)
+    r2c1, r2c2 = st.columns(2)
+    
+    # ---------------- GRÁFICOS DE TMA ----------------
+    if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
+        df_tma = df_enc.copy()
+        df_tma['DURACAO'] = (df_tma['ENCERRAMENTO'] - df_tma['ABERTURA']).dt.days
+        df_tma = df_tma.dropna(subset=['DURACAO'])
+        df_tma = df_tma[df_tma['DURACAO'] >= 0]
         
-    lista_completa_os = sorted(list(set(lista_completa_os)))
+        df_tma['Ano'] = df_tma['ENCERRAMENTO'].dt.year.astype(str)
+        df_tma['MesNum'] = df_tma['ENCERRAMENTO'].dt.month
+        df_tma['AnoMes'] = df_tma['ENCERRAMENTO'].dt.strftime('%Y-%m')
 
-    if lista_completa_os:
-        os_alvo = st.selectbox("Selecione ou digite o número de uma Ordem de Serviço para carregar a auditoria cronológica completa:", options=[""] + lista_completa_os)
-        
-        if os_alvo:
-            # Localiza a O.S. na Fila Ativa ou no histórico de Fechadas
-            dados_linha = None
-            origem = ""
-            
-            if not df_pend_bruto.empty and c_os_p and os_alvo in df_pend_bruto[c_os_p].astype(str).values:
-                dados_linha = df_pend_bruto[df_pend_bruto[c_os_p].astype(str) == os_alvo].iloc[0]
-                origem = "PENDENTE"
-            elif not df_enc_bruto.empty and 'O.S.' in df_enc_bruto.columns and os_alvo in df_enc_bruto['O.S.'].astype(str).values:
-                dados_linha = df_enc_bruto[df_enc_bruto['O.S.'].astype(str) == os_alvo].iloc[0]
-                origem = "ENCERRADA"
+        meses_pt = {1:'janeiro', 2:'fevereiro', 3:'março', 4:'abril', 5:'maio', 6:'junho', 7:'julho', 8:'agosto', 9:'setembro', 10:'outubro', 11:'novembro', 12:'dezembro'}
+        df_tma['MesNome'] = df_tma['MesNum'].map(meses_pt)
+
+        # Dados para "TMA - HISTÓRICO" (Linha por ano)
+        df_tma_ano = df_tma.groupby(['Ano', 'MesNum', 'MesNome'])['DURACAO'].mean().reset_index()
+        df_tma_ano = df_tma_ano.sort_values(['Ano', 'MesNum'])
+
+        # Dados para "TMA X MÊS" (Barra contínua)
+        df_tma_mes = df_tma.groupby(['AnoMes', 'Ano', 'MesNum', 'MesNome'])['DURACAO'].mean().reset_index()
+        df_tma_mes = df_tma_mes.sort_values('AnoMes')
+        df_tma_mes['Label'] = df_tma_mes['MesNome'] + " " + df_tma_mes['Ano']
+
+        with r1c2:
+            with st.container(border=True):
+                st.markdown("##### TMA - HISTÓRICO")
+                fig_tma_hist = px.line(df_tma_ano, x='MesNome', y='DURACAO', color='Ano', markers=True, color_discrete_sequence=['#70ad47', '#44546a', '#eeb022', '#c00000'])
+                fig_tma_hist.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None, legend_title_text=None)
+                st.plotly_chart(fig_tma_hist, use_container_width=True)
+
+        with st.container(border=True):
+            st.markdown("##### TMA X MÊS")
+            fig_tma_mes_chart = px.bar(df_tma_mes, x='Label', y='DURACAO', color_discrete_sequence=['#70ad47'])
+            fig_tma_mes_chart.update_layout(height=250, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None, xaxis={'type': 'category'})
+            st.plotly_chart(fig_tma_mes_chart, use_container_width=True)
+
+    # ---------------- GRÁFICOS DE FILA E BACKLOG ----------------
+    if not df_curva_fila.empty and 'Tempo Médio Aberta' in df_curva_fila.columns:
+        with r1c1:
+            with st.container(border=True):
+                st.markdown("##### TOTAL O.S x FAIXA DE DIAS")
+                fig_faixa = go.Figure()
+                cores_faixa = ['#70ad47', '#44546a', '#eeb022', '#c00000', '#5b9bd5']
+                colunas_faixa = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
                 
-            if dados_linha is not None:
-                with st.container(border=True):
-                    # Identifica colunas internas da linha localizada
-                    c_serie_l = get_col(pd.DataFrame([dados_linha]), ['N. SÉRIE', 'N.º SÉRIE', 'SÉRIE'])
-                    c_pat_l = get_col(pd.DataFrame([dados_linha]), ['PATRIMÔNIO', 'IDENTIFICADOR', 'ID'])
-                    c_tipo_l = get_col(pd.DataFrame([dados_linha]), ['TIPO EQUIPAMENTO', 'EQUIPAMENTO', 'DESCRIÇÃO'])
-                    c_local_l = get_col(pd.DataFrame([dados_linha]), ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO'])
-                    c_abertura_l = get_col(pd.DataFrame([dados_linha]), ['ABERTURA', 'DATA ABERTURA'])
-                    c_estado_l = get_col(pd.DataFrame([dados_linha]), ['ESTADO', 'ESTADO DA O.S.'])
-                    
-                    st.markdown(f"#### Ficha do Chamado Técnico - O.S. № {os_alvo} ({origem})")
-                    
-                    num_serie_real = dados_linha.get(c_serie_l, 'N/I') if c_serie_l else 'N/I'
-                    num_pat_real = dados_linha.get(c_pat_l, 'N/I') if c_pat_l else 'N/I'
-                    st.markdown(f"**Equipamento:** {dados_linha.get(c_tipo_l, 'N/I') if c_tipo_l else 'N/I'} | **Nº Série:** {num_serie_real} | **Patrimônio:** {num_pat_real}")
-                    st.divider()
-                    
-                    d1, d2, d3 = st.columns(3)
-                    dt_ab_val = dados_linha.get(c_abertura_l) if c_abertura_l else None
-                    dt_ab_str = dt_ab_val.strftime('%d/%m/%Y') if pd.notnull(dt_ab_val) and hasattr(dt_ab_val, 'strftime') else str(dt_ab_val) if pd.notnull(dt_ab_val) else 'N/I'
-                    
-                    d1.markdown(f"**📅 Data de Abertura:** {dt_ab_str}")
-                    if 'DIAS_EM_ABERTO' in dados_linha:
-                        d1.markdown(f"**⏳ Dias de Espera na Fila:** {dados_linha.get('DIAS_EM_ABERTO', 0)} dias")
-                    d2.markdown(f"**📍 Setor de Operação:** {dados_linha.get(c_local_l, 'N/I') if c_local_l else 'N/I'}")
-                    d3.markdown(f"**⚙️ Estado Funcional (GETS):** {dados_linha.get(c_estado_l, 'N/I') if c_estado_l else 'N/I'}")
-                    
-                    st.markdown("<br><h5 style='color: #32A347;'>🛠️ Linha do Tempo e Detalhamento Técnico (Apontamentos)</h5>", unsafe_allow_html=True)
-                    
-                    if not df_atividades.empty:
-                        df_at_temp = df_atividades.copy()
-                        os_busca = str(os_alvo).replace('.0', '').strip()
-                        df_historico_os = df_at_temp[df_at_temp['OS_KEY'] == os_busca] if 'OS_KEY' in df_at_temp.columns else pd.DataFrame()
-                        
-                        if not df_historico_os.empty:
-                            col_dt_inicio = get_col(df_historico_os, ['DATA INÍCIO', 'DATA INICIO', 'INÍCIO', 'INICIO', 'DATA DA EXECUÇÃO', 'DATA'])
-                            col_atividade = get_col(df_historico_os, ['ATIVIDADE', 'ATIVIDADES', 'TIPO ATIVIDADE'])
-                            col_servico = get_col(df_historico_os, ['SERVIÇO EXECUTADO', 'SERVICO EXECUTADO', 'SERVIÇO', 'DESCRIÇÃO', 'HISTÓRICO'])
-                            col_exec_act = get_col(df_historico_os, ['EXECUTOR', 'TÉCNICO', 'RESPONSÁVEL', 'TECNICO'])
-                            
-                            cols_print_act = [c for c in [col_dt_inicio, col_exec_act, col_atividade, col_servico] if c]
-                            df_print_act = df_historico_os[cols_print_act].copy()
-                            
-                            if col_dt_inicio:
-                                df_print_act[col_dt_inicio] = pd.to_datetime(df_print_act[col_dt_inicio], errors='coerce')
-                                df_print_act = df_print_act.sort_values(by=col_dt_inicio, ascending=False)
-                                df_print_act[col_dt_inicio] = df_print_act[col_dt_inicio].dt.strftime('%d/%m/%Y %H:%M')
-                                
-                            config_colunas = {}
-                            if col_dt_inicio: config_colunas[col_dt_inicio] = st.column_config.TextColumn("Atualização", width="medium")
-                            if col_exec_act: config_colunas[col_exec_act] = st.column_config.TextColumn("Executor", width="medium")
-                            if col_atividade: config_colunas[col_atividade] = st.column_config.TextColumn("Atividade", width="medium")
-                            if col_servico: config_colunas[col_servico] = st.column_config.TextColumn("Serviço Executado", width="large")
-                                
-                            st.dataframe(df_print_act, use_container_width=True, hide_index=True, column_config=config_colunas)
-                            
-                            with st.expander("Ver textos de Serviços Executados completos linha por linha"):
-                                for _, lista_row in df_print_act.iterrows():
-                                    t_ini = lista_row.get(col_dt_inicio, 'N/I')
-                                    t_exec = lista_row.get(col_exec_act, 'N/I')
-                                    t_txt = lista_row.get(col_servico, 'Sem descrição detalhada')
-                                    st.markdown(f"**[{t_ini}] - Executor: {t_exec}**")
-                                    st.info(t_txt)
-                        else:
-                            st.info("Esta Ordem de Serviço está registrada, mas ainda aguarda o primeiro apontamento técnico no campo.")
-                    else:
-                        st.info("Logs indisponíveis na pasta '03.Atividades'.")
-    else:
-        st.info("Nenhuma Ordem de Serviço localizada nas bases carregadas para investigação.")
+                for idx, col in enumerate(colunas_faixa):
+                    fig_faixa.add_trace(go.Scatter(x=df_curva_fila['Data'], y=df_curva_fila[col], name=col, mode='lines', stackgroup='one', line=dict(width=0), marker_color=cores_faixa[idx]))
+                
+                fig_faixa.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
+                st.plotly_chart(fig_faixa, use_container_width=True)
+
+        with r2c1:
+            with st.container(border=True):
+                st.markdown("##### TEMPO MÉDIO - O.S PENDENTE ABERTA")
+                fig_tm = px.line(df_curva_fila, x='Data', y='Tempo Médio Aberta', color_discrete_sequence=['#70ad47'])
+                media_geral = df_curva_fila['Tempo Médio Aberta'].mean()
+                fig_tm.add_hline(y=media_geral, line_dash="dash", line_color="black")
+                fig_tm.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
+                st.plotly_chart(fig_tm, use_container_width=True)
+
+        with r2c2:
+            with st.container(border=True):
+                st.markdown("##### TOTAL - O.S CRÍTICAS PENDENTES")
+                fig_crit = px.area(df_curva_fila, x='Data', y='Críticas', color_discrete_sequence=['#a9d18e'])
+                fig_crit.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
+                st.plotly_chart(fig_crit, use_container_width=True)
