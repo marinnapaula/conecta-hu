@@ -103,36 +103,15 @@ st.markdown("<div class='center-title'><span class='material-symbols-rounded' st
 # =====================================================================
 # 4. MENU DE NAVEGAÇÃO HORIZONTAL (7 CARDS)
 # =====================================================================
-c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+c1, c2 = st.columns(2)
 
 with c1:
-    if st.button("DASHBOARD", icon=":material/bar_chart:", use_container_width=True):
-        st.switch_page("pages/2_Dashboard.py")
-        
-with c2:
-    if st.button("HISTÓRICO", icon=":material/manage_search:", use_container_width=True):
-        st.switch_page("pages/5_Historico.py")
-        
-with c3:
-    if st.button("OS PENDENTES", icon=":material/notifications_active:", use_container_width=True):
-        st.switch_page("pages/3_Monitoramento_de_OS.py")
-        
-with c4:
     if st.button("CALENDÁRIO", icon=":material/calendar_month:", use_container_width=True):
         st.switch_page("pages/1_Calendario.py")
-        
-with c5:
-    if st.button("MAPA DE CALOR", icon=":material/map:", use_container_width=True):
-        st.switch_page("pages/4_Mapa_do_Parque.py")
-        
-with c6:
-    if st.button("IDADE PARQUE", icon=":material/hourglass_top:", use_container_width=True):
-        st.toast("Módulo em desenvolvimento! Em breve.", icon="🚧")
-        
-with c7:
-    if st.button("MONITORAMENTO", icon=":material/monitor_heart:", use_container_width=True):
-        st.toast("Módulo em desenvolvimento! Em breve.", icon="🚧")
-
+with c2:
+    if st.button("DASHBOARD", icon=":material/bar_chart:", use_container_width=True):
+        st.switch_page("pages/2_Dashboard.py")
+           
 # =====================================================================
 # 5. RODAPÉ (TEXTO E LOGO INFERIOR)
 # =====================================================================
