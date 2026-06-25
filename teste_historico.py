@@ -1,28 +1,29 @@
 import streamlit as st
-import pandas as pd
-from engine_historico import obter_dados_historico
 import plotly.express as px
+from engine_historico import obter_dados_historico
 
-st.set_page_config(page_title="Laboratório de Histórico", layout="wide")
+st.title("🧪 Laboratório de Histórico")
 
-st.title("🧪 Laboratório de Testes: Histórico")
-
-if st.button("🚀 Processar Dados"):
-    df, status = obter_dados_historico()
+if st.button("🚀 Processar"):
+    df, msg = obter_dados_historico()
     
     if not df.empty:
-        # Debug: mostra as colunas que o Python está enxergando
-        st.write("Colunas encontradas:", df.columns.tolist())
+        # Força conversão de data para o Plotly não confundir
+        df['DT_SNAP'] = pd.to_datetime(df['DT_SNAP'])
         
-        # Agora o metric vai funcionar porque fixamos os nomes no engine
-        col1, col2 = st.columns(2)
-        col1.metric("Média Geral de Dias", f"{df['Media_Dias'].mean():.1f}")
-        col2.metric("Volume Total", f"{df['Volume_Fila'].sum()}")
+        st.subheader("Gráfico de Backlog por Faixa")
         
-        # Gráfico
-        st.line_chart(df.set_index('DT_SNAP')[['Volume_Fila', 'Media_Dias']])
+        # O segredo do category_orders é alinhar com o que criamos no engine
+        fig = px.area(
+            df, 
+            x='DT_SNAP', 
+            y='Volume', 
+            color='FAIXA_DIAS',
+            category_orders={"FAIXA_DIAS": ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias", "Mais de 60 dias"]}
+        )
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        st.error("O DataFrame está vazio ou as colunas esperadas não foram criadas.")
+        st.error(msg)
     
     if not df.empty:
         # Métricas rápidas
