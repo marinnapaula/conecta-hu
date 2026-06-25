@@ -65,7 +65,11 @@ def carregar_os_encerradas():
     return df_final
 
 def carregar_todas_atividades(nome_pasta="03.Atividades"):
-    """Lê todos os relatórios mensais de atividades e os empilha."""
+    """
+    Lê todos os relatórios mensais de atividades e os empilha.
+    Possui leitura blindada para caçar o cabeçalho do GETS nas linhas 4, 5 ou 6,
+    e aceita as variações de nome da coluna (N.º O.S., O.S., etc).
+    """
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
@@ -75,47 +79,41 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     if not arquivos: return pd.DataFrame()
         
     lista_dfs = []
+    # Todas as formas que o GETS gosta de chamar a Ordem de Serviço
+    colunas_os_possiveis = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
+
     for arq in arquivos:
         try:
+            # 1ª Tentativa: Pular 5 linhas (cabeçalho na linha 6 - Padrão normal)
             df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
             df_temp.columns = df_temp.columns.str.strip().str.upper()
+            
+            # Se não achou nenhuma das colunas de OS, tenta pular 4 linhas (linha 5)
+            if not any(c in df_temp.columns for c in colunas_os_possiveis):
+                df_temp = pd.read_excel(arq, skiprows=4) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=4)
+                df_temp.columns = df_temp.columns.str.strip().str.upper()
+
+            # Se ainda não achou, tenta pular 3 linhas (linha 4)
+            if not any(c in df_temp.columns for c in colunas_os_possiveis):
+                df_temp = pd.read_excel(arq, skiprows=3) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=3)
+                df_temp.columns = df_temp.columns.str.strip().str.upper()
+
             lista_dfs.append(df_temp)
         except: continue
             
     if not lista_dfs: return pd.DataFrame()
     df_final = pd.concat(lista_dfs, ignore_index=True)
     
-    col_os = 'O.S.' if 'O.S.' in df_final.columns else ('OS' if 'OS' in df_final.columns else ('ORDEM DE SERVIÇO' if 'ORDEM DE SERVIÇO' in df_final.columns else None))
+    # Encontra exatamente qual nome de coluna o GETS usou neste arquivo
+    col_os = next((col for col in colunas_os_possiveis if col in df_final.columns), None)
+    
     if col_os:
         df_final = df_final.dropna(subset=[col_os])
+        # Cria uma chave limpa padrão chamada "OS_KEY" para o Dashboard nunca se perder
         df_final['OS_KEY'] = df_final[col_os].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
         
     df_final = df_final.drop_duplicates()
     return df_final
-
-def gerar_curva_backlog():
-    """Conta o volume diário de O.S. Pendentes lendo o histórico de arquivos."""
-    pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
-    arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
-    
-    if not arquivos: return pd.DataFrame()
-    lista_historico = []
-    
-    for arq in arquivos:
-        try:
-            dt_snap = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
-            df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
-            df_temp.columns = df_temp.columns.str.strip().str.upper()
-            col_os = 'O.S.' if 'O.S.' in df_temp.columns else ('OS' if 'OS' in df_temp.columns else None)
-            if col_os:
-                qtd_os = df_temp[col_os].dropna().count()
-                lista_historico.append({'Data': dt_snap, 'Volume Fila': int(qtd_os)})
-        except: continue
-            
-    if not lista_historico: return pd.DataFrame()
-    df_hist = pd.DataFrame(lista_historico)
-    df_hist = df_hist.groupby('Data')['Volume Fila'].max().reset_index().sort_values(by='Data')
-    return df_hist
 
 # =====================================================================
 # 2. MOTOR DE TRATAMENTO E INTELIGÊNCIA (INVENTÁRIO)
