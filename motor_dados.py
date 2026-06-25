@@ -149,7 +149,6 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     return df_final
 
 def gerar_curva_backlog():
-    # 1. Busca os arquivos (mantive sua lógica)
     pastas_busca = ["02.OS_Pendentes", "OS_Pendentes_Historico", "OS Pendentes Historico"]
     arquivos = []
     for p in pastas_busca:
@@ -158,35 +157,35 @@ def gerar_curva_backlog():
     
     lista_dfs = []
     for arq in arquivos:
-        # Lê o CSV forçando o tipo de dado para não errar
-        df = pd.read_csv(arq, sep=',', encoding='utf-8', low_memory=False)
+        # Lê mantendo tudo como texto puro inicialmente
+        df = pd.read_csv(arq, sep=',', encoding='utf-8', dtype=str, low_memory=False)
         df.columns = df.columns.str.strip().str.upper()
         
         if 'O.S.' in df.columns and 'SNAPSHOT_DATE' in df.columns:
-            # ESSA É A CHAVE: Transformar o texto do CSV em data real
-            # dayfirst=True garante que ele entenda 23/06/2026 como 23 de Junho
-            df['DT_SNAP_REF'] = pd.to_datetime(df['SNAPSHOT_DATE'], dayfirst=True, errors='coerce')
-            df['ABERTURA_CLEAN'] = pd.to_datetime(df['ABERTURA'], dayfirst=True, errors='coerce')
+            # LIMPEZA PESADA: Remove o nome do dia da semana antes de converter
+            # Transforma "quinta-feira, 7 de maio de 2026" em "7 de maio de 2026"
+            def limpar_data(val):
+                if pd.isna(val): return None
+                val = str(val).split(',')[-1].strip() # Pega só a parte após a vírgula
+                return val
+
+            df['DT_SNAP_REF'] = pd.to_datetime(df['SNAPSHOT_DATE'].apply(limpar_data), dayfirst=True, errors='coerce')
+            df['ABERTURA_CLEAN'] = pd.to_datetime(df['ABERTURA'].apply(limpar_data), dayfirst=True, errors='coerce')
             
-            # Removemos linhas onde a data veio "quebrada"
             df = df.dropna(subset=['DT_SNAP_REF', 'ABERTURA_CLEAN'])
-            
-            # Cálculo dos dias
             df['DIAS_ABERTO_HIST'] = (df['DT_SNAP_REF'] - df['ABERTURA_CLEAN']).dt.days
-            lista_dfs.append(df[['O.S.', 'DIAS_ABERTO_HIST', 'DT_SNAP_REF', 'CRITICO']])
+            
+            lista_dfs.append(df[['O.S.', 'DIAS_ABERTO_HIST', 'DT_SNAP_REF']])
                 
     if not lista_dfs: return pd.DataFrame()
     
     df_total = pd.concat(lista_dfs, ignore_index=True)
-    
-    # Agrupa por data real de snapshot
     resultado = df_total.groupby('DT_SNAP_REF').agg(
         Volume_Fila=('O.S.', 'count'),
         Media_Dias=('DIAS_ABERTO_HIST', 'mean')
     ).reset_index()
     
     return resultado.sort_values('DT_SNAP_REF')
-
 # =====================================================================
 # 3. MOTOR DE TRATAMENTO E INTELIGÊNCIA (INVENTÁRIO)
 # =====================================================================
