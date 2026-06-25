@@ -216,69 +216,174 @@ with tab_parque:
         st.info("Base de inventário vazia ou filtrada por completo.")
 
 # =====================================================================
-# TAB 2: FILA OPERACIONAL (PENDENTES)
+# TAB 2: CENTRO DE COMANDO OPERACIONAL (ACOMPANHAMENTO DE FILA)
 # =====================================================================
 with tab_fila:
     if not df_pend.empty:
         df_p = df_pend.copy()
         
-        total_pendentes = len(df_p)
-        col_classe = get_col(df_p, ['CLASSE'])
-        
-        if col_classe:
-            qtd_corretivas = len(df_p[df_p[col_classe].str.upper().str.strip().isin(['MC', 'MANUTENÇÃO CORRETIVA', 'CORRETIVA'])])
-            qtd_programadas = len(df_p[df_p[col_classe].str.upper().str.strip().isin(['MP', 'MANUTENÇÃO PROGRAMADA', 'PREVENTIVA', 'CALIBRAÇÃO'])])
-        else:
-            qtd_corretivas = total_pendentes
-            qtd_programadas = 0
-            
-        pct_corretiva = (qtd_corretivas / total_pendentes * 100) if total_pendentes > 0 else 0
-        pct_programada = (qtd_programadas / total_pendentes * 100) if total_pendentes > 0 else 0
-        
+        # 1. PREPARAÇÃO DAS COLUNAS E CÁLCULO DE TEMPO (Antes dos filtros)
         col_abertura = get_col(df_p, ['ABERTURA'])
         if col_abertura:
             df_p[col_abertura] = pd.to_datetime(df_p[col_abertura], errors='coerce')
             hoje = pd.Timestamp(datetime.today().date())
             df_p['DIAS_EM_ABERTO'] = (hoje - df_p[col_abertura]).dt.days
-            tma_aberto = df_p['DIAS_EM_ABERTO'].mean()
         else:
             df_p['DIAS_EM_ABERTO'] = 0
-            tma_aberto = 0
 
-        f1, f2, f3, f4 = st.columns(4)
-        f1.metric("O.S. Pendentes (Total)", total_pendentes)
-        f2.metric("Nº Corretivas (% Fila)", f"{qtd_corretivas} chamados", f"{pct_corretiva:.1f}% MC", delta_color="inverse")
-        f3.metric("Nº Programadas (% Fila)", f"{qtd_programadas} chamados", f"{pct_programada:.1f}% MP")
-        f4.metric("Tempo Médio OS Aberta", f"{tma_aberto:.1f} dias", "Idade média da fila", delta_color="inverse")
+        # Cria a Faixa de Dias para usar no filtro
+        condicoes = [df_p['DIAS_EM_ABERTO'] <= 5, df_p['DIAS_EM_ABERTO'] <= 15, df_p['DIAS_EM_ABERTO'] <= 30, df_p['DIAS_EM_ABERTO'] <= 60]
+        df_p['FAIXA_DIAS'] = np.select(condicoes, ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias"], default="Mais de 60 dias")
 
-        st.markdown("<br>", unsafe_allow_html=True)
+        # Garante a existência das colunas para os filtros não quebrarem
+        col_os = get_col(df_p, ['O.S.', 'OS', 'Nº O.S.'])
+        col_critico = get_col(df_p, ['EQUIPAMENTO CRÍTICO', 'EQUIPAMENTO CRITICO'])
+        col_parado = get_col(df_p, ['EQUIPAMENTO PARADO', 'PARADO'])
+        col_local = get_col(df_p, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO', 'LOCALIZACAO_INVENTARIO'])
+        col_serie = get_col(df_p, ['N. SÉRIE', 'N.º SÉRIE', 'SÉRIE'])
+        col_tipo = get_col(df_p, ['TIPO EQUIPAMENTO', 'EQUIPAMENTO', 'DESCRIÇÃO'])
+        col_estado = get_col(df_p, ['ESTADO', 'ESTADO DA O.S.'])
+        col_executor = get_col(df_p, ['EXECUTOR', 'RESPONSÁVEL'])
         
-        gf1, gf2 = st.columns(2)
-        with gf1:
-            st.markdown("##### Envelhecimento da Fila (Faixa de Dias)")
-            condicoes = [df_p['DIAS_EM_ABERTO'] <= 5, df_p['DIAS_EM_ABERTO'] <= 15, df_p['DIAS_EM_ABERTO'] <= 30, df_p['DIAS_EM_ABERTO'] <= 60]
-            df_p['Faixa_Fila'] = np.select(condicoes, ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias"], default="Mais de 60 dias")
-            df_p['Ordem_Faixa'] = np.select(condicoes, [1, 2, 3, 4], default=5)
-            
-            df_faixa_fila = df_p.groupby(['Faixa_Fila', 'Ordem_Faixa']).size().reset_index(name='Qtd')
-            df_faixa_fila = df_faixa_fila.sort_values(by='Ordem_Faixa')
-            
-            fig_faixa_p = px.bar(df_faixa_fila, x='Faixa_Fila', y='Qtd', text='Qtd', color_discrete_sequence=['#32A347'])
-            fig_faixa_p.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=300, xaxis_title=None, yaxis_title=None)
-            st.plotly_chart(fig_faixa_p, use_container_width=True)
-            
-        with gf2:
-            st.markdown("##### Distribuição por Estado Atual do Chamado")
-            col_estado = get_col(df_p, ['ESTADO', 'ESTADO DA O.S.'])
-            if col_estado:
-                df_estado = df_p[col_estado].value_counts().reset_index()
-                df_estado.columns = ['Estado', 'Qtd']
-                fig_est = px.pie(df_estado, values='Qtd', names='Estado', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
-                fig_est.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=300)
-                st.plotly_chart(fig_est, use_container_width=True)
-    else:
-        st.success("Nenhuma O.S. para os filtros selecionados!")
+        # Padroniza Sim/Não para evitar bugs de filtro
+        if col_critico: df_p[col_critico] = df_p[col_critico].astype(str).str.upper().str.strip()
+        if col_parado: df_p[col_parado] = df_p[col_parado].astype(str).str.upper().str.strip()
 
+        # =================================================================
+        # 2. PAINEL DE FILTROS ROBUSTOS
+        # =================================================================
+        st.markdown("### 🔎 Filtros Avançados de Busca")
+        with st.expander("Clique aqui para expandir e filtrar a fila", expanded=True):
+            f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+            
+            # Filtros de Texto / Específicos
+            filtro_os = f_col1.text_input("Nº da O.S.", placeholder="Ex: 261434")
+            filtro_serie = f_col2.text_input("Nº de Série", placeholder="Ex: ARXF-0277")
+            
+            # Filtros de Seleção (Multi)
+            opcoes_faixa = sorted(df_p['FAIXA_DIAS'].unique())
+            filtro_faixa = f_col3.multiselect("Faixa de Dias (Atraso)", opcoes_faixa)
+            
+            opcoes_local = sorted(df_p[col_local].dropna().unique()) if col_local else []
+            filtro_loc = f_col4.multiselect("Localização Física", opcoes_local)
+            
+            f_col5, f_col6, f_col7, f_col8 = st.columns(4)
+            opcoes_tipo = sorted(df_p[col_tipo].dropna().unique()) if col_tipo else []
+            filtro_tp = f_col5.multiselect("Tipo de Equipamento", opcoes_tipo)
+            
+            opcoes_estado = sorted(df_p[col_estado].dropna().unique()) if col_estado else []
+            filtro_est = f_col6.multiselect("Estado da O.S.", opcoes_estado)
+
+            # Filtros Críticos (Toggles / Select)
+            filtro_parado = f_col7.selectbox("Equipamento Parado?", ["Todos", "SIM", "NÃO"])
+            filtro_critico = f_col8.selectbox("Equipamento Crítico?", ["Todos", "SIM", "NÃO"])
+
+        # =================================================================
+        # 3. APLICAÇÃO DOS FILTROS (MÁQUINA DE BUSCA)
+        # =================================================================
+        df_filtrado = df_p.copy()
+        
+        if filtro_os and col_os:
+            df_filtrado = df_filtrado[df_filtrado[col_os].astype(str).str.contains(filtro_os, case=False, na=False)]
+        if filtro_serie and col_serie:
+            df_filtrado = df_filtrado[df_filtrado[col_serie].astype(str).str.contains(filtro_serie, case=False, na=False)]
+        if filtro_faixa:
+            df_filtrado = df_filtrado[df_filtrado['FAIXA_DIAS'].isin(filtro_faixa)]
+        if filtro_loc and col_local:
+            df_filtrado = df_filtrado[df_filtrado[col_local].isin(filtro_loc)]
+        if filtro_tp and col_tipo:
+            df_filtrado = df_filtrado[df_filtrado[col_tipo].isin(filtro_tp)]
+        if filtro_est and col_estado:
+            df_filtrado = df_filtrado[df_filtrado[col_estado].isin(filtro_est)]
+        if filtro_parado != "Todos" and col_parado:
+            df_filtrado = df_filtrado[df_filtrado[col_parado] == filtro_parado]
+        if filtro_critico != "Todos" and col_critico:
+            df_filtrado = df_filtrado[df_filtrado[col_critico] == filtro_critico]
+
+        # Ordena sempre do mais atrasado para o mais novo
+        df_filtrado = df_filtrado.sort_values(by='DIAS_EM_ABERTO', ascending=False)
+
+        # =================================================================
+        # 4. TABELA DE RESULTADOS
+        # =================================================================
+        st.markdown(f"**Resultados encontrados:** {len(df_filtrado)} O.S. na fila com os filtros atuais.")
+        
+        colunas_visao = [c for c in [col_os, col_tipo, col_serie, col_local, 'DIAS_EM_ABERTO', col_estado, col_executor] if c in df_filtrado.columns]
+        
+        st.dataframe(
+            df_filtrado[colunas_visao],
+            use_container_width=True,
+            hide_index=True,
+            height=250, # Mantém a tabela compacta para caber a ficha embaixo
+            column_config={
+                "DIAS_EM_ABERTO": st.column_config.ProgressColumn("SLA (Dias Aberta)", format="%d dias", min_value=0, max_value=int(df_p['DIAS_EM_ABERTO'].max())),
+                col_os: st.column_config.TextColumn("Nº O.S.")
+            }
+        )
+
+        st.markdown("---")
+
+        # =================================================================
+        # 5. FICHA DETALHADA DA O.S. (DRILL-DOWN INTERATIVO)
+        # =================================================================
+        st.markdown("### 🗂️ Ficha de Detalhamento da O.S.")
+        
+        if not df_filtrado.empty and col_os:
+            # Dropdown para o usuário escolher qual OS da tabela ele quer investigar
+            os_selecionada = st.selectbox(
+                "Selecione o Número da O.S. para abrir os detalhes completos:", 
+                options=df_filtrado[col_os].astype(str).unique()
+            )
+            
+            if os_selecionada:
+                # Puxa os dados da linha exata selecionada
+                dados_os = df_filtrado[df_filtrado[col_os].astype(str) == os_selecionada].iloc[0]
+                
+                # Monta um "Card" visual com container
+                with st.container(border=True):
+                    c_cab1, c_cab2, c_cab3 = st.columns([2, 1, 1])
+                    
+                    equipamento_nome = dados_os.get(col_tipo, 'N/I')
+                    marca_modelo = dados_os.get('MM_KEY', dados_os.get('MARCA', '') + ' | ' + dados_os.get('MODELO', 'N/I'))
+                    
+                    c_cab1.markdown(f"#### O.S. {os_selecionada} - {equipamento_nome}")
+                    c_cab1.markdown(f"**Marca/Modelo:** {marca_modelo}")
+                    
+                    # Badges de Alerta
+                    parado_badge = "🔴 PARADO" if str(dados_os.get(col_parado, '')).upper() == 'SIM' else "🟢 FUNCIONANDO"
+                    critico_badge = "⚠️ CRÍTICO" if str(dados_os.get(col_critico, '')).upper() == 'SIM' else "ℹ️ NORMAL"
+                    
+                    c_cab2.markdown(f"**Status Físico:**<br>{parado_badge}", unsafe_allow_html=True)
+                    c_cab3.markdown(f"**Criticidade:**<br>{critico_badge}", unsafe_allow_html=True)
+                    
+                    st.divider()
+                    
+                    c_det1, c_det2, c_det3, c_det4 = st.columns(4)
+                    
+                    # Informações da Fila e Datas
+                    data_abertura = dados_os.get(col_abertura)
+                    data_abertura_str = data_abertura.strftime('%d/%m/%Y') if pd.notnull(data_abertura) else 'N/I'
+                    
+                    col_transicao = get_col(df_filtrado, ['DT. ÚLTIMA TRANSIÇÃO', 'ÚLTIMA TRANSIÇÃO'])
+                    data_trans = dados_os.get(col_transicao)
+                    data_trans_str = pd.to_datetime(data_trans).strftime('%d/%m/%Y') if pd.notnull(data_trans) else 'N/I'
+                    
+                    c_det1.markdown(f"**📅 Data de Abertura:**<br>{data_abertura_str}", unsafe_allow_html=True)
+                    c_det1.markdown(f"**⏳ Tempo na Fila:**<br>{dados_os.get('DIAS_EM_ABERTO', 0)} dias", unsafe_allow_html=True)
+                    
+                    c_det2.markdown(f"**📍 Localização Atual:**<br>{dados_os.get(col_local, 'N/I')}", unsafe_allow_html=True)
+                    c_det2.markdown(f"**🔢 Nº de Série:**<br>{dados_os.get(col_serie, 'N/I')}", unsafe_allow_html=True)
+                    
+                    c_det3.markdown(f"**⚙️ Estado da O.S.:**<br>{dados_os.get(col_estado, 'N/I')}", unsafe_allow_html=True)
+                    c_det3.markdown(f"**🔄 Última Transição:**<br>{data_trans_str}", unsafe_allow_html=True)
+                    
+                    c_det4.markdown(f"**👷 Executor / Responsável:**<br>{dados_os.get(col_executor, 'Não Alocado')}", unsafe_allow_html=True)
+                    c_det4.markdown(f"**🛠️ Classe:**<br>{dados_os.get(get_col(df_filtrado, ['CLASSE']), 'N/I')}", unsafe_allow_html=True)
+        else:
+            st.warning("Ajuste os filtros acima para encontrar Ordens de Serviço.")
+            
+    else:
+        st.success("Não há Ordens de Serviço Pendentes carregadas no sistema.")
 # =====================================================================
 # TAB 3: PRODUTIVIDADE E TMA
 # =====================================================================
