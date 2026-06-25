@@ -1,5 +1,4 @@
 
-from engine_historico import obter_dados_historico
 import streamlit as st
 # =====================================================================
 # 1. CONFIGURAÇÃO DA PÁGINA
