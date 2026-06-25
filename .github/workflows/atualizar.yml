@@ -36,8 +36,16 @@ jobs:
         run: |
           git config --global user.name 'Robo GETS'
           git config --global user.email 'robo@hubrasil.com'
+          
           # Adiciona apenas a pasta de planilhas para evitar sujeira no repositório
           git add planilhas_gets/
           git status
+          
+          # Realiza o commit se houver alterações nas planilhas
           git diff --quiet && git diff --staged --quiet || git commit -m "Automação: Bases de dados do GETS atualizadas"
+          
+          # MÁGICA DA CORREÇÃO: Sincroniza as alterações do código antes de enviar as planilhas
+          git pull --rebase origin main
+          
+          # Envia os dados atualizados para o repositório
           git push
