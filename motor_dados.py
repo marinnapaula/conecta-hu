@@ -157,10 +157,19 @@ def limpar_dimensao_equipamentos(df_inventario_bruto):
     df = df.drop_duplicates(subset=['EQUIP_KEY'], keep='first')
     df = df.drop(columns=['STATUS_RANK'])
     
-    # 6. Correção de Datas
+    # 6. Correção de Datas (A SALVAÇÃO!)
+    # Esta lógica lida com a mistura que o GETS faz de datas normais e números crus do Excel
     if 'ÚLTIMA MP' in df.columns:
-        df['ÚLTIMA MP'] = pd.to_datetime(df['ÚLTIMA MP'], errors='coerce', origin='1899-12-30', unit='D' if df['ÚLTIMA MP'].dtype in [np.float64, np.int64] else None)
-        df['ÚLTIMA MP'] = pd.to_datetime(df['ÚLTIMA MP'], errors='coerce')
+        # Tenta converter o que vier como data normal primeiro (ex: '2023-10-02')
+        datas_texto = pd.to_datetime(df['ÚLTIMA MP'], errors='coerce')
+        
+        # O que não for data, transforma em número forçado (ex: converte o texto '44000' para número 44000)
+        numeros_excel = pd.to_numeric(df['ÚLTIMA MP'], errors='coerce')
+        # Tenta transformar esses números usando a origem do Excel
+        datas_excel = pd.to_datetime(numeros_excel, origin='1899-12-30', unit='D', errors='coerce')
+        
+        # Junta os dois mundos: Se a conversão por texto falhou (NaT), usa a do Excel!
+        df['ÚLTIMA MP'] = datas_texto.fillna(datas_excel)
         
     return df
 
