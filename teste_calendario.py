@@ -94,7 +94,7 @@ for semana in matriz_mes:
                 
                 # Botão invisível/pequeno para ver detalhes do dia se necessário
                 if info['abertas'] > 0 or info['fechadas'] > 0:
-                    if st.button(f"🔍 Detalhes {dia}", key=f"btn_{dia}", size="small"):
+                if st.button(f"🔍 Detalhes {dia}", key=f"btn_{dia}"):
                         st.session_state['dia_selecionado'] = dia
 
 # --- 5. DETALHES DO DIA SELECIONADO ---
