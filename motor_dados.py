@@ -149,39 +149,37 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     return df_final
 
 def gerar_curva_backlog():
+    # 1. Busca os arquivos (mantive sua lógica)
     pastas_busca = ["02.OS_Pendentes", "OS_Pendentes_Historico", "OS Pendentes Historico"]
     arquivos = []
     for p in pastas_busca:
-        pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", p)
-        arquivos.extend(get_arquivos(pasta_alvo))
-    
-    arquivos = list(set(arquivos))
-    if not arquivos: return pd.DataFrame()
+        caminho = os.path.join(os.getcwd(), "planilhas_gets", p)
+        arquivos.extend(glob.glob(os.path.join(caminho, "*.csv")))
     
     lista_dfs = []
     for arq in arquivos:
-        # Lê sem pular linhas fixas para garantir que achamos o cabeçalho
-        df_temp = pd.read_csv(arq, sep=',', encoding='utf-8', low_memory=False)
-        if len(df_temp.columns) < 5: # Fallback para separador ponto e vírgula
-            df_temp = pd.read_csv(arq, sep=';', encoding='latin1', low_memory=False)
-            
-        df_temp.columns = df_temp.columns.str.strip().str.upper()
+        # Lê o CSV forçando o tipo de dado para não errar
+        df = pd.read_csv(arq, sep=',', encoding='utf-8', low_memory=False)
+        df.columns = df.columns.str.strip().str.upper()
         
-        if 'O.S.' in df_temp.columns and 'SNAPSHOT_DATE' in df_temp.columns:
-            # FORÇA A CONVERSÃO DE DATA AQUI
-            df_temp['DT_SNAP_REF'] = pd.to_datetime(df_temp['SNAPSHOT_DATE'], errors='coerce')
-            df_temp['ABERTURA_CLEAN'] = pd.to_datetime(df_temp['ABERTURA'], errors='coerce')
+        if 'O.S.' in df.columns and 'SNAPSHOT_DATE' in df.columns:
+            # ESSA É A CHAVE: Transformar o texto do CSV em data real
+            # dayfirst=True garante que ele entenda 23/06/2026 como 23 de Junho
+            df['DT_SNAP_REF'] = pd.to_datetime(df['SNAPSHOT_DATE'], dayfirst=True, errors='coerce')
+            df['ABERTURA_CLEAN'] = pd.to_datetime(df['ABERTURA'], dayfirst=True, errors='coerce')
             
-            # Remove linhas onde a data falhou
-            df_temp = df_temp.dropna(subset=['DT_SNAP_REF', 'ABERTURA_CLEAN'])
+            # Removemos linhas onde a data veio "quebrada"
+            df = df.dropna(subset=['DT_SNAP_REF', 'ABERTURA_CLEAN'])
             
-            df_temp['DIAS_ABERTO_HIST'] = (df_temp['DT_SNAP_REF'] - df_temp['ABERTURA_CLEAN']).dt.days
-            lista_dfs.append(df_temp[['O.S.', 'DIAS_ABERTO_HIST', 'DT_SNAP_REF', 'CRITICO']])
+            # Cálculo dos dias
+            df['DIAS_ABERTO_HIST'] = (df['DT_SNAP_REF'] - df['ABERTURA_CLEAN']).dt.days
+            lista_dfs.append(df[['O.S.', 'DIAS_ABERTO_HIST', 'DT_SNAP_REF', 'CRITICO']])
                 
     if not lista_dfs: return pd.DataFrame()
+    
     df_total = pd.concat(lista_dfs, ignore_index=True)
     
-    # Agrupa e reconstrói
+    # Agrupa por data real de snapshot
     resultado = df_total.groupby('DT_SNAP_REF').agg(
         Volume_Fila=('O.S.', 'count'),
         Media_Dias=('DIAS_ABERTO_HIST', 'mean')
