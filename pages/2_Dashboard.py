@@ -72,7 +72,7 @@ def obter_dados_processados():
     df_inv_bruto = carregar_mais_recente("04.Inventário")
     df_pend_bruto = carregar_mais_recente("02.OS_Pendentes")
     df_enc_bruto = carregar_os_encerradas()
-    df_atividades_bruto = carregar_todas_atividades("05.Atendimento_de_OS")
+    df_atividades_bruto = carregar_todas_atividades("03.Atividades") # <-- RETORNOU PRA CAIXA CERTA!
     df_curva_fila = gerar_curva_backlog()
         
     df_inv_limpo = limpar_dimensao_equipamentos(df_inv_bruto)
@@ -315,7 +315,7 @@ with tab_fila:
                         else:
                             st.info("Esta O.S. está na fila aguardando o primeiro apontamento técnico.")
                     else:
-                        st.info("Logs indisponíveis na pasta '05. Atendimento de OS'.")
+                        st.info("Logs indisponíveis na pasta '03.Atividades'.")
         else:
             st.warning("Ajuste a busca para carregar as fichas técnicas.")
 
