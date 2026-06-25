@@ -14,27 +14,62 @@ def get_arquivos(pasta_alvo):
            glob.glob(os.path.join(pasta_alvo, "*.csv"))
 
 def ler_arquivo_gets(caminho_arq, colunas_alvo):
-    """Lê o arquivo testando várias linhas de cabeçalho e suportando .xls antigo."""
+    """Lê o arquivo testando várias linhas de cabeçalho, suportando .xls falso (HTML) e CSVs brasileiros."""
     for skip in [5, 4, 3, 0, 1, 2, 6, 7, 8]:
         try:
-            # Checa a extensão para não tentar ler um Excel velho como se fosse CSV
-            if caminho_arq.lower().endswith('.xlsx') or caminho_arq.lower().endswith('.xls'):
-                df = pd.read_excel(caminho_arq, skiprows=skip)
-            else:
-                df = pd.read_csv(caminho_arq, skiprows=skip, low_memory=False)
-                
-            df.columns = df.columns.astype(str).str.strip().str.upper()
+            df = pd.DataFrame()
+            extensao = caminho_arq.lower()
             
-            # Se achou as colunas que a gente quer, a leitura deu certo!
-            if any(c in df.columns for c in colunas_alvo):
-                return df
+            # Se for formato Excel
+            if extensao.endswith('.xlsx'):
+                df = pd.read_excel(caminho_arq, skiprows=skip)
+                
+            elif extensao.endswith('.xls'):
+                try:
+                    df = pd.read_excel(caminho_arq, skiprows=skip)
+                except:
+                    # PLANO B: Se for um Falso XLS (Tabela HTML exportada)
+                    try:
+                        dfs = pd.read_html(caminho_arq, skiprows=skip, decimal=',', thousands='.')
+                        if dfs: df = dfs[0]
+                    except:
+                        pass
+                        
+            # Se for formato CSV
+            else:
+                try:
+                    # Tenta o padrão Brasileiro (Ponto e vírgula, encoding latino)
+                    df = pd.read_csv(caminho_arq, skiprows=skip, sep=';', encoding='latin1', low_memory=False)
+                    if len(df.columns) <= 1: raise ValueError("Separador incorreto")
+                except:
+                    # PLANO B: Tenta o padrão Internacional (Vírgula, encoding utf-8)
+                    df = pd.read_csv(caminho_arq, skiprows=skip, sep=',', encoding='utf-8', low_memory=False)
+
+            if not df.empty:
+                df.columns = df.columns.astype(str).str.strip().str.upper()
+                # Valida se o arquivo tem alguma coluna de interesse
+                if any(c in df.columns for c in colunas_alvo):
+                    return df
         except:
             continue
+            
     return pd.DataFrame()
 
 # =====================================================================
 # 2. INGESTÃO DE DADOS E EMPILHAMENTO
 # =====================================================================
+# Dicionário Expansivo de Tradução Universal do GETS (Antigo e Novo)
+MAPA_COLUNAS_UNIVERSAL = {
+    'N.º O.S.': 'O.S.', 'Nº O.S.': 'O.S.', 'N. O.S.': 'O.S.', 'OS': 'O.S.', 'ORDEM DE SERVIÇO': 'O.S.', 'CHAMADO': 'O.S.', 'NÚMERO DA OS': 'O.S.', 'NÚMERO DA O.S.': 'O.S.',
+    'DATA ABERTURA': 'ABERTURA', 'DATA DE ABERTURA': 'ABERTURA', 'CRIADO EM': 'ABERTURA', 'ABERTO EM': 'ABERTURA',
+    'DATA ENCERRAMENTO': 'ENCERRAMENTO', 'DATA DE ENCERRAMENTO': 'ENCERRAMENTO', 'FECHAMENTO': 'ENCERRAMENTO', 'DATA CONCLUSÃO': 'ENCERRAMENTO', 'CONCLUÍDO EM': 'ENCERRAMENTO', 'DATA/HORA ENCERRAMENTO': 'ENCERRAMENTO',
+    'TIPO MANUTENÇÃO': 'CLASSE', 'TIPO DA O.S.': 'CLASSE', 'TIPO DE MANUTENÇÃO': 'CLASSE',
+    'PROGRAMA': 'PROGRAMA MP', 'TIPO DE PREVENTIVA': 'PROGRAMA MP',
+    'LOCALIZAÇÃO': 'LOCALIZAÇÃO FÍSICA', 'SETOR': 'LOCALIZAÇÃO FÍSICA',
+    'EQUIPAMENTO': 'DESCRIÇÃO', 'TIPO EQUIPAMENTO': 'DESCRIÇÃO', 'NOME DO EQUIPAMENTO': 'DESCRIÇÃO'
+}
+COLUNAS_BUSCA_OS = list(MAPA_COLUNAS_UNIVERSAL.keys()) + ['O.S.']
+
 def carregar_mais_recente(nome_pasta):
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = get_arquivos(pasta_alvo)
@@ -42,35 +77,22 @@ def carregar_mais_recente(nome_pasta):
     if not arquivos: return pd.DataFrame()
     arq_recente = max(arquivos, key=os.path.getmtime)
     
-    colunas = ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO'] if "Invent" in nome_pasta else ['N.º O.S.', 'O.S.', 'OS']
+    colunas = ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO'] if "Invent" in nome_pasta else COLUNAS_BUSCA_OS
     df = ler_arquivo_gets(arq_recente, colunas)
     if not df.empty:
         df['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq_recente), unit='s')
     return df
 
 def carregar_os_encerradas():
-    """Empilha todos os meses de Encerradas traduzindo formatos velhos e novos."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "01.OS_Encerradas")
     arquivos = get_arquivos(pasta_alvo)
     if not arquivos: return pd.DataFrame()
 
     lista_dfs = []
-    # Dicionário de Tradução Universal do GETS
-    mapa_colunas = {
-        'N.º O.S.': 'O.S.', 'Nº O.S.': 'O.S.', 'N. O.S.': 'O.S.', 'OS': 'O.S.', 'ORDEM DE SERVIÇO': 'O.S.',
-        'DATA ABERTURA': 'ABERTURA', 'DATA DE ABERTURA': 'ABERTURA', 'CRIADO EM': 'ABERTURA',
-        'DATA ENCERRAMENTO': 'ENCERRAMENTO', 'DATA DE ENCERRAMENTO': 'ENCERRAMENTO', 'FECHAMENTO': 'ENCERRAMENTO', 'DATA CONCLUSÃO': 'ENCERRAMENTO',
-        'TIPO MANUTENÇÃO': 'CLASSE', 'TIPO DA O.S.': 'CLASSE',
-        'PROGRAMA': 'PROGRAMA MP', 'TIPO DE PREVENTIVA': 'PROGRAMA MP',
-        'LOCALIZAÇÃO': 'LOCALIZAÇÃO FÍSICA',
-        'EQUIPAMENTO': 'DESCRIÇÃO', 'TIPO EQUIPAMENTO': 'DESCRIÇÃO'
-    }
-    colunas_busca = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
-    
     for arq in arquivos:
-        df_temp = ler_arquivo_gets(arq, colunas_busca)
+        df_temp = ler_arquivo_gets(arq, COLUNAS_BUSCA_OS)
         if not df_temp.empty:
-            df_temp = df_temp.rename(columns=mapa_colunas)
+            df_temp = df_temp.rename(columns=MAPA_COLUNAS_UNIVERSAL)
             df_temp['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq), unit='s')
             lista_dfs.append(df_temp)
             
@@ -82,7 +104,7 @@ def carregar_os_encerradas():
         df_final['OS_KEY'] = df_final['O.S.'].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
     else: return pd.DataFrame() 
 
-    # Tratamento cego para datas que o Excel antigo manda quebradas
+    # Tratamento blindado para datas que o Excel antigo manda como número
     for col in ['ABERTURA', 'ENCERRAMENTO']:
         if col in df_final.columns:
             datas_texto = pd.to_datetime(df_final[col], errors='coerce', dayfirst=True)
@@ -91,7 +113,8 @@ def carregar_os_encerradas():
             df_final[col] = datas_texto.fillna(datas_excel)
 
     if 'ENCERRAMENTO' in df_final.columns:
-        df_final = df_final[df_final['ENCERRAMENTO'].dt.year >= 2023]
+        # Garante a coleta desde 2020 para não perder nenhum rastro
+        df_final = df_final[df_final['ENCERRAMENTO'].dt.year >= 2020]
         df_final = df_final.sort_values(by=['ENCERRAMENTO', 'REPORT_CREATED_AT'], ascending=[False, False])
     else:
         df_final = df_final.sort_values(by='REPORT_CREATED_AT', ascending=False)
@@ -107,19 +130,18 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     if not arquivos: return pd.DataFrame()
         
     lista_dfs = []
-    colunas_busca = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
-
     for arq in arquivos:
-        df_temp = ler_arquivo_gets(arq, colunas_busca)
-        if not df_temp.empty: lista_dfs.append(df_temp)
+        df_temp = ler_arquivo_gets(arq, COLUNAS_BUSCA_OS)
+        if not df_temp.empty: 
+            df_temp = df_temp.rename(columns=MAPA_COLUNAS_UNIVERSAL)
+            lista_dfs.append(df_temp)
             
     if not lista_dfs: return pd.DataFrame()
     df_final = pd.concat(lista_dfs, ignore_index=True)
     
-    col_os = next((col for col in colunas_busca if col in df_final.columns), None)
-    if col_os:
-        df_final = df_final.dropna(subset=[col_os])
-        df_final['OS_KEY'] = df_final[col_os].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
+    if 'O.S.' in df_final.columns:
+        df_final = df_final.dropna(subset=['O.S.'])
+        df_final['OS_KEY'] = df_final['O.S.'].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
         
     df_final = df_final.drop_duplicates()
     return df_final
@@ -130,14 +152,12 @@ def gerar_curva_backlog():
     if not arquivos: return pd.DataFrame()
     
     lista_historico = []
-    colunas_busca = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
-    
     for arq in arquivos:
-        df_temp = ler_arquivo_gets(arq, colunas_busca)
+        df_temp = ler_arquivo_gets(arq, COLUNAS_BUSCA_OS)
         if not df_temp.empty:
-            col_os = next((c for c in colunas_busca if c in df_temp.columns), None)
-            if col_os:
-                qtd_os = df_temp[col_os].dropna().count()
+            df_temp = df_temp.rename(columns=MAPA_COLUNAS_UNIVERSAL)
+            if 'O.S.' in df_temp.columns:
+                qtd_os = df_temp['O.S.'].dropna().count()
                 dt_snap = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
                 lista_historico.append({'Data': dt_snap, 'Volume Fila': int(qtd_os)})
             
