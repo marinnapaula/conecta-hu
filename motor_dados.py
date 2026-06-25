@@ -5,36 +5,50 @@ import numpy as np
 from datetime import datetime
 
 # =====================================================================
-# 1. INGESTÃO DE DADOS (LEITURA DE ARQUIVOS)
+# 1. FUNÇÃO AUXILIAR SUPREMA (LEITURA BLINDADA GETS)
 # =====================================================================
+def ler_arquivo_gets(caminho_arq, colunas_alvo):
+    """Lê o arquivo caçando o cabeçalho correto, testando da linha 0 até a 8."""
+    for skip in [5, 4, 3, 0, 1, 2, 6, 7, 8]:
+        try:
+            df = pd.read_excel(caminho_arq, skiprows=skip) if caminho_arq.endswith('.xlsx') else pd.read_csv(caminho_arq, skiprows=skip, low_memory=False)
+            df.columns = df.columns.astype(str).str.strip().str.upper()
+            if any(c in df.columns for c in colunas_alvo):
+                return df
+        except:
+            continue
+    return pd.DataFrame()
 
+# =====================================================================
+# 2. INGESTÃO DE DADOS E EMPILHAMENTO
+# =====================================================================
 def carregar_mais_recente(nome_pasta):
-    """Lê sempre o arquivo mais recente de uma pasta do GETS."""
+    """Lê o último relatório de Inventário ou Fila Pendente."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
-    if not arquivos:
-        return pd.DataFrame()
-        
+    if not arquivos: return pd.DataFrame()
     arq_recente = max(arquivos, key=os.path.getmtime)
     
-    try:
-        df = pd.read_excel(arq_recente, skiprows=5) if arq_recente.endswith('.xlsx') else pd.read_csv(arq_recente, skiprows=5)
-        df.columns = df.columns.str.strip().str.upper()
+    if "Inventário" in nome_pasta or "Inventario" in nome_pasta:
+        colunas = ['IDENTIFICADOR', 'ID', 'N.º SÉRIE', 'N. SÉRIE', 'SÉRIE', 'PATRIMÔNIO']
+    else:
+        colunas = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
+        
+    df = ler_arquivo_gets(arq_recente, colunas)
+    if not df.empty:
         df['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq_recente), unit='s')
-        return df
-    except:
-        return pd.DataFrame()
+    return df
 
 def carregar_os_encerradas():
-    """Lê TODA a pasta de OS Encerradas com UNIFICAÇÃO DE COLUNAS e DATAS BLINDADAS."""
+    """Empilha todos os meses de Encerradas traduzindo formatos velhos e novos."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "01.OS_Encerradas")
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
     if not arquivos: return pd.DataFrame()
 
     lista_dfs = []
-    # Dicionário de tradução universal: Padroniza relatórios velhos e novos
+    # Dicionário de Tradução Universal do GETS
     mapa_colunas = {
         'N.º O.S.': 'O.S.', 'Nº O.S.': 'O.S.', 'N. O.S.': 'O.S.', 'OS': 'O.S.', 'ORDEM DE SERVIÇO': 'O.S.',
         'DATA ABERTURA': 'ABERTURA', 'DATA DE ABERTURA': 'ABERTURA', 'CRIADO EM': 'ABERTURA',
@@ -45,28 +59,14 @@ def carregar_os_encerradas():
         'EQUIPAMENTO': 'DESCRIÇÃO', 'TIPO EQUIPAMENTO': 'DESCRIÇÃO'
     }
     
+    colunas_busca = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
+    
     for arq in arquivos:
-        try:
-            # 1ª Tentativa: Pular 5 linhas
-            df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
-            df_temp.columns = df_temp.columns.str.strip().str.upper()
+        df_temp = ler_arquivo_gets(arq, colunas_busca)
+        if not df_temp.empty:
             df_temp = df_temp.rename(columns=mapa_colunas)
-            
-            # Se não achou O.S., tenta pular 4 linhas
-            if 'O.S.' not in df_temp.columns:
-                df_temp = pd.read_excel(arq, skiprows=4) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=4)
-                df_temp.columns = df_temp.columns.str.strip().str.upper()
-                df_temp = df_temp.rename(columns=mapa_colunas)
-
-            # Se ainda não achou, tenta pular 3 linhas
-            if 'O.S.' not in df_temp.columns:
-                df_temp = pd.read_excel(arq, skiprows=3) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=3)
-                df_temp.columns = df_temp.columns.str.strip().str.upper()
-                df_temp = df_temp.rename(columns=mapa_colunas)
-
             df_temp['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq), unit='s')
             lista_dfs.append(df_temp)
-        except: continue
             
     if not lista_dfs: return pd.DataFrame()
     df_final = pd.concat(lista_dfs, ignore_index=True)
@@ -77,7 +77,7 @@ def carregar_os_encerradas():
     else: 
         return pd.DataFrame() 
 
-    # Blindagem Suprema de Datas: Aceita formato de texto ("dd/mm/yyyy") e números seriais do Excel
+    # Tratamento blindado de datas antigas quebradas
     for col in ['ABERTURA', 'ENCERRAMENTO']:
         if col in df_final.columns:
             datas_texto = pd.to_datetime(df_final[col], errors='coerce', dayfirst=True)
@@ -95,7 +95,7 @@ def carregar_os_encerradas():
     return df_final
 
 def carregar_todas_atividades(nome_pasta="03.Atividades"):
-    """Lê todos os relatórios mensais de atividades e os empilha."""
+    """Empilha o histórico de atividades usando a nova leitura blindada."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
@@ -105,28 +105,17 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     if not arquivos: return pd.DataFrame()
         
     lista_dfs = []
-    colunas_os_possiveis = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
+    colunas_busca = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
 
     for arq in arquivos:
-        try:
-            df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
-            df_temp.columns = df_temp.columns.str.strip().str.upper()
-            
-            if not any(c in df_temp.columns for c in colunas_os_possiveis):
-                df_temp = pd.read_excel(arq, skiprows=4) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=4)
-                df_temp.columns = df_temp.columns.str.strip().str.upper()
-
-            if not any(c in df_temp.columns for c in colunas_os_possiveis):
-                df_temp = pd.read_excel(arq, skiprows=3) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=3)
-                df_temp.columns = df_temp.columns.str.strip().str.upper()
-
+        df_temp = ler_arquivo_gets(arq, colunas_busca)
+        if not df_temp.empty:
             lista_dfs.append(df_temp)
-        except: continue
             
     if not lista_dfs: return pd.DataFrame()
     df_final = pd.concat(lista_dfs, ignore_index=True)
     
-    col_os = next((col for col in colunas_os_possiveis if col in df_final.columns), None)
+    col_os = next((col for col in colunas_busca if col in df_final.columns), None)
     
     if col_os:
         df_final = df_final.dropna(subset=[col_os])
@@ -136,23 +125,22 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     return df_final
 
 def gerar_curva_backlog():
-    """Conta o volume diário de O.S. Pendentes lendo o histórico de arquivos."""
+    """Histórico de Fila Pendente usando a nova leitura blindada."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
     if not arquivos: return pd.DataFrame()
     lista_historico = []
+    colunas_busca = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
     
     for arq in arquivos:
-        try:
-            dt_snap = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
-            df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
-            df_temp.columns = df_temp.columns.str.strip().str.upper()
-            col_os = next((c for c in ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS'] if c in df_temp.columns), None)
+        df_temp = ler_arquivo_gets(arq, colunas_busca)
+        if not df_temp.empty:
+            col_os = next((c for c in colunas_busca if c in df_temp.columns), None)
             if col_os:
                 qtd_os = df_temp[col_os].dropna().count()
+                dt_snap = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
                 lista_historico.append({'Data': dt_snap, 'Volume Fila': int(qtd_os)})
-        except: continue
             
     if not lista_historico: return pd.DataFrame()
     df_hist = pd.DataFrame(lista_historico)
@@ -160,9 +148,8 @@ def gerar_curva_backlog():
     return df_hist
 
 # =====================================================================
-# 2. MOTOR DE TRATAMENTO E INTELIGÊNCIA (INVENTÁRIO)
+# 3. MOTOR DE TRATAMENTO E INTELIGÊNCIA (INVENTÁRIO)
 # =====================================================================
-
 def limpar_dimensao_equipamentos(df_inventario_bruto):
     """Limpeza, unificação de colunas e tratamento de datas numéricas."""
     if df_inventario_bruto.empty: return pd.DataFrame()
