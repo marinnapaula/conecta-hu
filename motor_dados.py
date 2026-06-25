@@ -76,8 +76,14 @@ def carregar_mais_recente(nome_pasta):
     return df
 
 def carregar_os_encerradas():
-    pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "01.OS_Encerradas")
-    arquivos = get_arquivos(pasta_alvo)
+    """Lê a pasta 01 E a pasta 05 para puxar o histórico COMPLETO (2023 a 2026)."""
+    pasta_01 = os.path.join(os.getcwd(), "planilhas_gets", "01.OS_Encerradas")
+    pasta_05a = os.path.join(os.getcwd(), "planilhas_gets", "05. Atendimento de OS")
+    pasta_05b = os.path.join(os.getcwd(), "planilhas_gets", "05.Atendimento_de_OS")
+    
+    arquivos = get_arquivos(pasta_01) + get_arquivos(pasta_05a) + get_arquivos(pasta_05b)
+    arquivos = list(set(arquivos)) # Remove duplicidades caso existam
+    
     if not arquivos: return pd.DataFrame()
 
     lista_dfs = []
@@ -112,14 +118,13 @@ def carregar_os_encerradas():
     df_final = df_final.drop_duplicates(subset=['OS_KEY'], keep='first')
     return df_final
 
-def carregar_todas_atividades(nome_pasta="05.Atendimento_de_OS"):
-    """Empilha o histórico de atividades buscando na pasta correta (05. Atendimento de OS)."""
+def carregar_todas_atividades(nome_pasta="03.Atividades"):
+    """Voltou para a pasta 03.Atividades, onde os logs técnicos de verdade estão."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = get_arquivos(pasta_alvo)
     
-    if not arquivos and nome_pasta == "05.Atendimento_de_OS":
-        pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "05. Atendimento de OS")
-        arquivos = get_arquivos(pasta_alvo)
+    if not arquivos and nome_pasta == "03.Atividades":
+        return carregar_todas_atividades("03.Atividades_Recentes")
         
     if not arquivos: return pd.DataFrame()
         
