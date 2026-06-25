@@ -19,7 +19,7 @@ from motor_dados import (
 # 1. CONFIGURAÇÃO VISUAL (MONTSERRAT & BRANDING)
 # =====================================================================
 st.set_page_config(
-    page_title="Dashboard | Conecta",
+    page_title="Dashboard | Conecta-HU",
     page_icon=":material/analytics:",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -48,7 +48,7 @@ col_titulo, col_espaco, col_logo1, col_logo2 = st.columns([5.5, 1.5, 1.5, 1.5])
 
 with col_titulo:
     st.markdown("<h1 style='display:flex; align-items:center; gap:12px; margin-top: -10px;'><span class='material-symbols-rounded' style='font-size: 40px;'>analytics</span> Painel - Engenharia Clínica</h1>", unsafe_allow_html=True)
-    st.markdown("** Monitoramento de Parque Tecnológico e Gestão de Indicadores| HU-UNIVASF**")
+    st.markdown("Monitoramento de Parque Tecnológico e Gestão de Indicadores| HU-UNIVASF")
 
 with col_logo1:
     st.markdown("<div class='logo-container'>", unsafe_allow_html=True)
