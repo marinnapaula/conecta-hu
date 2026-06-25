@@ -111,7 +111,6 @@ if not df_pend_bruto.empty:
     if filtro_local and c_loc_p: df_pend = df_pend[df_pend[c_loc_p].isin(filtro_local)]
     if filtro_tipo and c_tip_p:  df_pend = df_pend[df_pend[c_tip_p].isin(filtro_tipo)]
     
-    # Preparação Global de Prazos e Classes para os Gráficos
     col_abertura_p = get_col(df_pend, ['ABERTURA', 'DATA ABERTURA'])
     if col_abertura_p:
         df_pend[col_abertura_p] = pd.to_datetime(df_pend[col_abertura_p], errors='coerce')
@@ -142,11 +141,14 @@ if not df_enc_bruto.empty:
 else:
     df_enc = pd.DataFrame()
 
-# Definição das Abas Estreitadas
-tab_parque, tab_fila, tab_indicadores, tab_financeiro = st.tabs([
+# =====================================================================
+# ESTRUTURA DE ABAS (AGORA COM 5 ABAS)
+# =====================================================================
+tab_parque, tab_fila, tab_indicadores, tab_produtividade, tab_financeiro = st.tabs([
     "Ciclo de Vida do Parque", 
     "Acompanhamento de O.S. Pendentes", 
-    "Indicadores",
+    "Indicadores de Gestão",
+    "Produtividade & Entregas",
     "Gestão Financeira & Ativos"
 ])
 
@@ -320,73 +322,63 @@ with tab_fila:
             st.warning("Ajuste a busca para carregar as fichas técnicas.")
 
 # =====================================================================
-# TAB 3: INDICADORES (PRODUTIVIDADE E PANORAMA)
+# TAB 3: INDICADORES (FOTOGRAFIA DO MOMENTO)
 # =====================================================================
 with tab_indicadores:
-    # --- CÁLCULO DAS MÉTRICAS DE TMA (ENCERRADAS) ---
-    tma_g_12 = 0; tma_mc_12 = 0
+    tma_g_12 = 0; tma_mc_12 = 0; tma_mp_12 = 0
     if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
         df_e = df_enc.copy()
         df_e['DURACAO'] = (df_e['ENCERRAMENTO'] - df_e['ABERTURA']).dt.days
-        
         hoje = pd.Timestamp(datetime.today().date())
         df_12m = df_e[df_e['ENCERRAMENTO'] >= (hoje - pd.DateOffset(months=12))]
-        
         tma_g_12 = df_12m['DURACAO'].mean() if not df_12m.empty else 0
         
         col_classe_e = get_col(df_12m, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
         if col_classe_e:
             cond_mc = df_12m[col_classe_e].astype(str).str.upper().str.contains('CORR|MC|QUEBRA')
             tma_mc_12 = df_12m[cond_mc]['DURACAO'].mean() if not df_12m[cond_mc].empty else 0
+            cond_mp = df_12m[col_classe_e].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA')
+            tma_mp_12 = df_12m[cond_mp]['DURACAO'].mean() if not df_12m[cond_mp].empty else 0
 
-    # --- CÁLCULO DAS MÉTRICAS DE FILA (PENDENTES) ---
     tot_pend = 0; tot_crit = 0; tm_aberta_geral = 0; tm_aberta_mc = 0
     if not df_pend.empty:
         tot_pend = len(df_pend)
-        
         col_critico_ind = get_col(df_pend, ['EQUIPAMENTO CRÍTICO', 'EQUIPAMENTO CRITICO'])
         if col_critico_ind:
             tot_crit = len(df_pend[df_pend[col_critico_ind].astype(str).str.upper().str.strip() == 'SIM'])
-            
         tm_aberta_geral = df_pend['DIAS_EM_ABERTO'].mean()
-        
         df_pend_mc = df_pend[df_pend['TIPO_MANUTENCAO'] == 'CORRETIVA']
         tm_aberta_mc = df_pend_mc['DIAS_EM_ABERTO'].mean() if not df_pend_mc.empty else 0
 
-    # --- LINHA 1: CARTÕES RESUMO UNIFICADOS (SUTIS E DIRETOS) ---
-    st.markdown("<h4 style='color: #154899; margin-bottom: 5px; margin-top: 5px;'>Visão Geral de Desempenho e Fila</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color: #32A347; margin-bottom: 5px; margin-top: 5px;'>Visão Geral de Desempenho e Fila</h4>", unsafe_allow_html=True)
     
-    ind_c1, ind_c2, ind_c3, ind_c4 = st.columns(4)
-    ind_c1.metric("TMA Geral (Últimos 12 Meses)", f"{tma_g_12:.1f} Dias")
-    ind_c2.metric("TMA Corretiva (Últimos 12 Meses)", f"{tma_mc_12:.1f} Dias")
-    ind_c3.metric("Total de O.S. Pendentes", f"{tot_pend}", f"{tot_crit} Críticas", delta_color="inverse" if tot_crit > 0 else "normal")
-    ind_c4.metric("Tempo Médio de Espera (Abertas)", f"{tm_aberta_geral:.1f} Dias", f"Apenas Corretivas: {tm_aberta_mc:.1f} Dias", delta_color="inverse" if tm_aberta_geral > 0 else "normal")
+    ind_c1, ind_c2, ind_c3, ind_c4, ind_c5 = st.columns(5)
+    ind_c1.metric("TMA Geral", f"{tma_g_12:.1f} Dias", help="Tempo Médio de Atendimento Geral (Últimos 12 meses)")
+    ind_c2.metric("TMA Corretiva", f"{tma_mc_12:.1f} Dias", help="Tempo Médio de Atendimento de O.S. Corretivas (Últimos 12 meses)")
+    ind_c3.metric("TMA Programada", f"{tma_mp_12:.1f} Dias", help="Tempo Médio de Atendimento de O.S. Preventivas/Calibrações (Últimos 12 meses)")
+    ind_c4.metric("O.S. Pendentes", f"{tot_pend}", f"{tot_crit} Críticas", delta_color="inverse" if tot_crit > 0 else "normal", help="Volume total de Ordens de Serviço abertas na fila")
+    ind_c5.metric("Espera Média (Abertas)", f"{tm_aberta_geral:.1f} Dias", f"Corretivas: {tm_aberta_mc:.1f} d", delta_color="inverse" if tm_aberta_geral > 0 else "normal", help="Média de dias em aberto considerando as O.S. ainda na fila")
 
     st.markdown("---")
     
-    # --- LINHA 2: GRÁFICOS (VISÃO DO POWER BI) ---
     if not df_pend.empty:
         col_estado_graf = get_col(df_pend, ['ESTADO', 'ESTADO DA O.S.'])
         col_os_graf = get_col(df_pend, ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS', 'OS_KEY'])
         
         if col_estado_graf and col_os_graf:
             c_esq, c_dir = st.columns([1.2, 1])
-            
-            # Gráfico 1 (Esquerda): Média de Dias x Total de OS por Estado
             with c_esq:
                 with st.container(border=True):
                     st.markdown("##### Média de Dias em Aberto x Total de O.S. por Estado")
                     df_est = df_pend.groupby(col_estado_graf).agg(Total_OS=(col_os_graf, 'count'), Media_Dias=('DIAS_EM_ABERTO', 'mean')).reset_index()
                     df_est = df_est.sort_values('Total_OS', ascending=True)
-                    
                     fig_est = go.Figure()
-                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Total_OS'], name='Total O.S.', orientation='h', marker_color='#32A347'))
-                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Media_Dias'], name='Média Dias em Aberto', orientation='h', marker_color='#154899'))
+                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Total_OS'], name='Total O.S.', orientation='h', marker_color='#70ad47'))
+                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Media_Dias'], name='Média Dias em Aberto', orientation='h', marker_color='#44546a'))
                     fig_est.update_layout(barmode='group', height=500, margin=dict(l=0, r=0, t=20, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5))
                     st.plotly_chart(fig_est, use_container_width=True)
             
             with c_dir:
-                # Gráfico 2 (Direita Topo): Faixa de Dias
                 with st.container(border=True):
                     st.markdown("##### Total O.S. x Faixa de Dias")
                     df_faixa_g = df_pend.groupby(['FAIXA_DIAS', 'ORDEM_FAIXA']).size().reset_index(name='Total')
@@ -395,7 +387,6 @@ with tab_indicadores:
                     fig_faixa.update_layout(height=200, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
                     st.plotly_chart(fig_faixa, use_container_width=True)
                     
-                # Gráfico 3 (Direita Base): Pizza de Manutenção
                 with st.container(border=True):
                     st.markdown("##### O.S. Pendente x Tipo de Manutenção")
                     df_tp = df_pend['TIPO_MANUTENCAO'].value_counts().reset_index()
@@ -404,13 +395,101 @@ with tab_indicadores:
                     fig_tp.update_traces(textposition='inside', textinfo='percent+label')
                     fig_tp.update_layout(height=230, margin=dict(l=0, r=0, t=10, b=0), showlegend=True)
                     st.plotly_chart(fig_tp, use_container_width=True)
-        else:
-            st.info("Colunas de Estado ou O.S. ausentes no arquivo de Pendentes.")
-    else:
-        st.success("Não há Ordens de Serviço pendentes na base atual.")
 
 # =====================================================================
-# TAB 4: GESTÃO FINANCEIRA & ATIVOS
+# TAB 4: PRODUTIVIDADE & ENTREGAS (FLUXO HISTÓRICO)
+# =====================================================================
+with tab_produtividade:
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Análise de Produtividade e Entregas Mensais</h3>", unsafe_allow_html=True)
+    
+    if not df_enc.empty:
+        col_abertura_e = get_col(df_enc, ['ABERTURA', 'DATA ABERTURA'])
+        col_encerra_e = get_col(df_enc, ['ENCERRAMENTO', 'DATA ENCERRAMENTO'])
+        col_os_e = get_col(df_enc, ['OS_KEY', 'O.S.', 'OS'])
+        col_classe_e = get_col(df_enc, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
+        col_prog_e = get_col(df_enc, ['PROGRAMA MP', 'PROGRAMA', 'TIPO DE PREVENTIVA'])
+        
+        # Filtro Global de Ano para Produtividade
+        df_enc['Ano_Encerramento'] = df_enc[col_encerra_e].dt.year
+        anos_disp = sorted(df_enc['Ano_Encerramento'].dropna().unique().astype(int).tolist(), reverse=True)
+        
+        c_filtro_ano, _ = st.columns([1, 4])
+        ano_filtro = c_filtro_ano.selectbox("Filtrar por Ano de Referência:", ["Todos os Anos"] + anos_disp)
+        
+        df_prod = df_enc.copy()
+        if ano_filtro != "Todos os Anos":
+            df_prod = df_prod[df_prod['Ano_Encerramento'] == ano_filtro]
+        
+        # LÓGICA DE DEMANDA VS PRODUÇÃO (Soma Abertas na base de Pendentes + Encerradas)
+        lista_aberturas = []
+        if col_abertura_e and col_os_e:
+            lista_aberturas.append(df_enc[[col_os_e, col_abertura_e]].rename(columns={col_os_e: 'OS', col_abertura_e: 'DATA'}))
+        
+        col_abertura_p = get_col(df_pend, ['ABERTURA', 'DATA ABERTURA'])
+        col_os_p = get_col(df_pend, ['OS_KEY', 'O.S.', 'OS', 'N.º O.S.'])
+        if col_abertura_p and col_os_p and not df_pend.empty:
+            lista_aberturas.append(df_pend[[col_os_p, col_abertura_p]].rename(columns={col_os_p: 'OS', col_abertura_p: 'DATA'}))
+        
+        if lista_aberturas:
+            df_demanda_base = pd.concat(lista_aberturas).drop_duplicates('OS').dropna(subset=['DATA'])
+            df_demanda_base['AnoMes'] = df_demanda_base['DATA'].dt.strftime('%Y-%m')
+            df_demanda_agrup = df_demanda_base.groupby('AnoMes').size().reset_index(name='Demanda (Entradas)')
+        else:
+            df_demanda_agrup = pd.DataFrame(columns=['AnoMes', 'Demanda (Entradas)'])
+
+        df_prod['AnoMes'] = df_prod[col_encerra_e].dt.strftime('%Y-%m')
+        df_saida_agrup = df_prod.groupby('AnoMes').size().reset_index(name='Produção (Saídas)')
+        
+        df_balanco = pd.merge(df_demanda_agrup, df_saida_agrup, on='AnoMes', how='outer').fillna(0).sort_values('AnoMes')
+        
+        if ano_filtro != "Todos os Anos":
+            df_balanco = df_balanco[df_balanco['AnoMes'].str.startswith(str(ano_filtro))]
+        
+        # 1º Gráfico: Entradas x Saídas (Barra Dupla)
+        with st.container(border=True):
+            st.markdown("##### Entradas (Demandas) x Saídas (Produção Total)")
+            fig_balanco = go.Figure()
+            fig_balanco.add_trace(go.Bar(x=df_balanco['AnoMes'], y=df_balanco['Demanda (Entradas)'], name='Demanda (Abertas)', marker_color='#70ad47'))
+            fig_balanco.add_trace(go.Bar(x=df_balanco['AnoMes'], y=df_balanco['Produção (Saídas)'], name='Total Entregas', marker_color='#44546a'))
+            fig_balanco.update_layout(barmode='group', height=350, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+            st.plotly_chart(fig_balanco, use_container_width=True)
+        
+        # 2º Nível de Gráficos: Distribuições
+        c_prod1, c_prod2 = st.columns(2)
+        with c_prod1:
+            with st.container(border=True):
+                st.markdown("##### Distribuição de Entregas x Classe de Manutenção")
+                if col_classe_e:
+                    df_prod['Classe_Norm'] = np.where(df_prod[col_classe_e].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA'), 'Manutenção Programada',
+                                             np.where(df_prod[col_classe_e].astype(str).str.upper().str.contains('CORR|MC|QUEBRA'), 'Manutenção Corretiva',
+                                             np.where(df_prod[col_classe_e].astype(str).str.upper().str.contains('INSTAL'), 'Instalação', 'Outras')))
+                                             
+                    df_classe = df_prod.groupby(['AnoMes', 'Classe_Norm']).size().reset_index(name='Qtd')
+                    fig_classe = px.bar(df_classe, x='AnoMes', y='Qtd', color='Classe_Norm', color_discrete_sequence=['#44546a', '#eeb022', '#70ad47', '#a6a6a6'])
+                    fig_classe.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
+                    st.plotly_chart(fig_classe, use_container_width=True)
+                else:
+                    st.info("Coluna de Classe não localizada.")
+                    
+        with c_prod2:
+            with st.container(border=True):
+                st.markdown("##### Distribuição de Entregas x Tipo de Preventiva")
+                if col_prog_e:
+                    df_prev = df_prod[df_prod[col_prog_e].notna() & (df_prod[col_prog_e].astype(str).str.strip() != '')]
+                    if not df_prev.empty:
+                        df_prog = df_prev.groupby(['AnoMes', col_prog_e]).size().reset_index(name='Qtd')
+                        fig_prog = px.bar(df_prog, x='AnoMes', y='Qtd', color=col_prog_e, color_discrete_sequence=px.colors.qualitative.Safe)
+                        fig_prog.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
+                        st.plotly_chart(fig_prog, use_container_width=True)
+                    else:
+                        st.info("Não há entregas programadas registradas para o período.")
+                else:
+                    st.info("Coluna de Programa Preventivo não localizada nas Encerradas.")
+    else:
+        st.warning("Não há histórico de O.S. Encerradas para calcular a produtividade.")
+
+# =====================================================================
+# TAB 5: GESTÃO FINANCEIRA & ATIVOS
 # =====================================================================
 with tab_financeiro:
     if not df_inv.empty:
