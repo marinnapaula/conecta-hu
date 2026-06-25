@@ -141,9 +141,7 @@ if not df_enc_bruto.empty:
 else:
     df_enc = pd.DataFrame()
 
-# =====================================================================
-# ESTRUTURA DE ABAS (AGORA COM 5 ABAS)
-# =====================================================================
+# Definição das Abas Estreitadas
 tab_parque, tab_fila, tab_indicadores, tab_produtividade, tab_financeiro = st.tabs([
     "Ciclo de Vida do Parque", 
     "Acompanhamento de O.S. Pendentes", 
@@ -420,7 +418,7 @@ with tab_produtividade:
         if ano_filtro != "Todos os Anos":
             df_prod = df_prod[df_prod['Ano_Encerramento'] == ano_filtro]
         
-        # LÓGICA DE DEMANDA VS PRODUÇÃO (Soma Abertas na base de Pendentes + Encerradas)
+        # Lógica de Demanda (Abertas na base de Pendentes + Encerradas)
         lista_aberturas = []
         if col_abertura_e and col_os_e:
             lista_aberturas.append(df_enc[[col_os_e, col_abertura_e]].rename(columns={col_os_e: 'OS', col_abertura_e: 'DATA'}))
@@ -444,14 +442,30 @@ with tab_produtividade:
         
         if ano_filtro != "Todos os Anos":
             df_balanco = df_balanco[df_balanco['AnoMes'].str.startswith(str(ano_filtro))]
+            
+        # FORMATADOR DE MESES EM PORTUGUÊS IGUAL AO POWER BI
+        meses_pt = {'01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr', '05': 'Mai', '06': 'Jun', '07': 'Jul', '08': 'Ago', '09': 'Set', '10': 'Out', '11': 'Nov', '12': 'Dez'}
+        def formatar_anomes(am):
+            if pd.isna(am) or '-' not in str(am): return am
+            ano, mes = str(am).split('-')
+            return f"{meses_pt.get(mes, mes)} {ano}"
         
-        # 1º Gráfico: Entradas x Saídas (Barra Dupla)
+        df_balanco['Mes_Label'] = df_balanco['AnoMes'].apply(formatar_anomes)
+        df_prod['Mes_Label'] = df_prod['AnoMes'].apply(formatar_anomes)
+        
+        # 1º Gráfico: Entradas x Saídas
         with st.container(border=True):
             st.markdown("##### Entradas (Demandas) x Saídas (Produção Total)")
             fig_balanco = go.Figure()
-            fig_balanco.add_trace(go.Bar(x=df_balanco['AnoMes'], y=df_balanco['Demanda (Entradas)'], name='Demanda (Abertas)', marker_color='#70ad47'))
-            fig_balanco.add_trace(go.Bar(x=df_balanco['AnoMes'], y=df_balanco['Produção (Saídas)'], name='Total Entregas', marker_color='#44546a'))
-            fig_balanco.update_layout(barmode='group', height=350, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+            fig_balanco.add_trace(go.Bar(x=df_balanco['Mes_Label'], y=df_balanco['Demanda (Entradas)'], name='Demanda (Abertas)', marker_color='#70ad47'))
+            fig_balanco.add_trace(go.Bar(x=df_balanco['Mes_Label'], y=df_balanco['Produção (Saídas)'], name='Total Entregas', marker_color='#44546a'))
+            
+            # O Segredo para não cortar datas no eixo X: type='category'
+            fig_balanco.update_layout(
+                barmode='group', height=350, margin=dict(l=0, r=0, t=10, b=0), 
+                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+                xaxis=dict(type='category', tickangle=-45)
+            )
             st.plotly_chart(fig_balanco, use_container_width=True)
         
         # 2º Nível de Gráficos: Distribuições
@@ -464,9 +478,13 @@ with tab_produtividade:
                                              np.where(df_prod[col_classe_e].astype(str).str.upper().str.contains('CORR|MC|QUEBRA'), 'Manutenção Corretiva',
                                              np.where(df_prod[col_classe_e].astype(str).str.upper().str.contains('INSTAL'), 'Instalação', 'Outras')))
                                              
-                    df_classe = df_prod.groupby(['AnoMes', 'Classe_Norm']).size().reset_index(name='Qtd')
-                    fig_classe = px.bar(df_classe, x='AnoMes', y='Qtd', color='Classe_Norm', color_discrete_sequence=['#44546a', '#eeb022', '#70ad47', '#a6a6a6'])
-                    fig_classe.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
+                    df_classe = df_prod.groupby(['AnoMes', 'Mes_Label', 'Classe_Norm']).size().reset_index(name='Qtd').sort_values('AnoMes')
+                    fig_classe = px.bar(df_classe, x='Mes_Label', y='Qtd', color='Classe_Norm', color_discrete_sequence=['#44546a', '#eeb022', '#70ad47', '#a6a6a6'])
+                    fig_classe.update_layout(
+                        height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, 
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+                        xaxis=dict(type='category', tickangle=-45), xaxis_title=None, yaxis_title="Qtd"
+                    )
                     st.plotly_chart(fig_classe, use_container_width=True)
                 else:
                     st.info("Coluna de Classe não localizada.")
@@ -477,9 +495,13 @@ with tab_produtividade:
                 if col_prog_e:
                     df_prev = df_prod[df_prod[col_prog_e].notna() & (df_prod[col_prog_e].astype(str).str.strip() != '')]
                     if not df_prev.empty:
-                        df_prog = df_prev.groupby(['AnoMes', col_prog_e]).size().reset_index(name='Qtd')
-                        fig_prog = px.bar(df_prog, x='AnoMes', y='Qtd', color=col_prog_e, color_discrete_sequence=px.colors.qualitative.Safe)
-                        fig_prog.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5))
+                        df_prog = df_prev.groupby(['AnoMes', 'Mes_Label', col_prog_e]).size().reset_index(name='Qtd').sort_values('AnoMes')
+                        fig_prog = px.bar(df_prog, x='Mes_Label', y='Qtd', color=col_prog_e, color_discrete_sequence=px.colors.qualitative.Safe)
+                        fig_prog.update_layout(
+                            height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, 
+                            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+                            xaxis=dict(type='category', tickangle=-45), xaxis_title=None, yaxis_title="Qtd"
+                        )
                         st.plotly_chart(fig_prog, use_container_width=True)
                     else:
                         st.info("Não há entregas programadas registradas para o período.")
