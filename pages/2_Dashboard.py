@@ -142,109 +142,95 @@ else:
     df_enc = pd.DataFrame()
 
 # =====================================================================
-# ESTRUTURA DE ABAS (AGORA COM 7 ABAS)
+# ESTRUTURA DE ABAS (REORDENADA)
 # =====================================================================
-tab_mapa, tab_parque, tab_fila, tab_indicadores, tab_produtividade, tab_conformidade, tab_financeiro = st.tabs([
+tab_indicadores, tab_fila, tab_produtividade, tab_calor, tab_mapa, tab_parque, tab_financeiro = st.tabs([
+    "Indicadores",
+    "Acompanhamento de O.S. Pendentes", 
+    "Produtividade",
+    "Mapa de Calor",
     "Mapa do Parque",
     "Ciclo de Vida do Parque", 
-    "Acompanhamento de O.S. Pendentes", 
-    "Indicadores de Gestão",
-    "Produtividade & Entregas",
-    "Matriz de Conformidade",
-    "Gestão Financeira & Ativos"
+    "Gestão Financeira"
 ])
 
 # =====================================================================
-# TAB 1: MAPA DO PARQUE TECNOLÓGICO (VISÃO EXECUTIVA)
+# TAB 1: INDICADORES (FOTOGRAFIA DO MOMENTO)
 # =====================================================================
-with tab_mapa:
-    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Mapa do Parque Tecnológico</h3>", unsafe_allow_html=True)
-    st.markdown("**Monitoramento de Disponibilidade e Concentração de Falhas por Setor | HU-UNIVASF**")
+with tab_indicadores:
+    tma_g_12 = 0; tma_mc_12 = 0; tma_mp_12 = 0
+    if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
+        df_e = df_enc.copy()
+        df_e['DURACAO'] = (df_e['ENCERRAMENTO'] - df_e['ABERTURA']).dt.days
+        hoje = pd.Timestamp(datetime.today().date())
+        df_12m = df_e[df_e['ENCERRAMENTO'] >= (hoje - pd.DateOffset(months=12))]
+        tma_g_12 = df_12m['DURACAO'].mean() if not df_12m.empty else 0
+        
+        col_classe_e = get_col(df_12m, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
+        if col_classe_e:
+            cond_mc = df_12m[col_classe_e].astype(str).str.upper().str.contains('CORR|MC|QUEBRA')
+            tma_mc_12 = df_12m[cond_mc]['DURACAO'].mean() if not df_12m[cond_mc].empty else 0
+            cond_mp = df_12m[col_classe_e].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA')
+            tma_mp_12 = df_12m[cond_mp]['DURACAO'].mean() if not df_12m[cond_mp].empty else 0
 
-    # Cálculos da Visão Geral
-    tot_ativos_mapa = len(df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']) if not df_inv.empty else 0
-    tot_parados_mapa = 0
+    tot_pend = 0; tot_crit = 0; tm_aberta_geral = 0; tm_aberta_mc = 0
+    if not df_pend.empty:
+        tot_pend = len(df_pend)
+        col_critico_ind = get_col(df_pend, ['EQUIPAMENTO CRÍTICO', 'EQUIPAMENTO CRITICO'])
+        if col_critico_ind:
+            tot_crit = len(df_pend[df_pend[col_critico_ind].astype(str).str.upper().str.strip() == 'SIM'])
+        tm_aberta_geral = df_pend['DIAS_EM_ABERTO'].mean()
+        df_pend_mc = df_pend[df_pend['TIPO_MANUTENCAO'] == 'CORRETIVA']
+        tm_aberta_mc = df_pend_mc['DIAS_EM_ABERTO'].mean() if not df_pend_mc.empty else 0
+
+    st.markdown("<h4 style='color: #32A347; margin-bottom: 5px; margin-top: 5px;'>Visão Geral de Desempenho e Fila</h4>", unsafe_allow_html=True)
+    
+    ind_c1, ind_c2, ind_c3, ind_c4, ind_c5 = st.columns(5)
+    ind_c1.metric("TMA Geral", f"{tma_g_12:.1f} Dias", help="Tempo Médio de Atendimento Geral (Últimos 12 meses)")
+    ind_c2.metric("TMA Corretiva", f"{tma_mc_12:.1f} Dias", help="Tempo Médio de Atendimento de O.S. Corretivas (Últimos 12 meses)")
+    ind_c3.metric("TMA Programada", f"{tma_mp_12:.1f} Dias", help="Tempo Médio de Atendimento de O.S. Preventivas/Calibrações (Últimos 12 meses)")
+    ind_c4.metric("O.S. Pendentes", f"{tot_pend}", f"{tot_crit} Críticas", delta_color="inverse" if tot_crit > 0 else "normal", help="Volume total de Ordens de Serviço abertas na fila")
+    ind_c5.metric("Espera Média (Abertas)", f"{tm_aberta_geral:.1f} Dias", f"Corretivas: {tm_aberta_mc:.1f} d", delta_color="inverse" if tm_aberta_geral > 0 else "normal", help="Média de dias em aberto considerando as O.S. ainda na fila")
+
+    st.markdown("---")
     
     if not df_pend.empty:
-        col_parado_mapa = get_col(df_pend, ['EQUIPAMENTO PARADO', 'PARADO'])
-        if col_parado_mapa:
-            tot_parados_mapa = len(df_pend[df_pend[col_parado_mapa].astype(str).str.upper().str.strip() == 'SIM'])
+        col_estado_graf = get_col(df_pend, ['ESTADO', 'ESTADO DA O.S.'])
+        col_os_graf = get_col(df_pend, ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS', 'OS_KEY'])
+        
+        if col_estado_graf and col_os_graf:
+            c_esq, c_dir = st.columns([1.2, 1])
+            with c_esq:
+                with st.container(border=True):
+                    st.markdown("##### Média de Dias em Aberto x Total de O.S. por Estado")
+                    df_est = df_pend.groupby(col_estado_graf).agg(Total_OS=(col_os_graf, 'count'), Media_Dias=('DIAS_EM_ABERTO', 'mean')).reset_index()
+                    df_est = df_est.sort_values('Total_OS', ascending=True)
+                    fig_est = go.Figure()
+                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Total_OS'], name='Total O.S.', orientation='h', marker_color='#70ad47'))
+                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Media_Dias'], name='Média Dias em Aberto', orientation='h', marker_color='#44546a'))
+                    fig_est.update_layout(barmode='group', height=500, margin=dict(l=0, r=0, t=20, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5))
+                    st.plotly_chart(fig_est, use_container_width=True)
             
-    taxa_disp = ((tot_ativos_mapa - tot_parados_mapa) / tot_ativos_mapa * 100) if tot_ativos_mapa > 0 else 0
-    
-    map_c1, map_c2, map_c3 = st.columns(3)
-    map_c1.metric("Total de Ativos (Inventário)", f"{tot_ativos_mapa:,}".replace(",", "."))
-    map_c2.metric("Equipamentos Parados (Corretiva)", f"{tot_parados_mapa}", "Ação Imediata", delta_color="inverse")
-    map_c3.metric("Taxa de Disponibilidade Global", f"{taxa_disp:.1f}%", "Meta: 95.0%", delta_color="normal" if taxa_disp >= 95 else "inverse")
-
-    st.markdown("<br><h4 style='color: #154899;'>Concentração de O.S. por Localização Física</h4>", unsafe_allow_html=True)
-    
-    if not df_pend.empty:
-        col_local_mapa = get_col(df_pend, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO', 'LOCALIZACAO_INVENTARIO'])
-        if col_local_mapa:
-            df_tree = df_pend.groupby(col_local_mapa).size().reset_index(name='FALHAS')
-            df_tree = df_tree[df_tree['FALHAS'] > 0]
-            
-            if not df_tree.empty:
-                fig_tree = px.treemap(
-                    df_tree, 
-                    path=[px.Constant("HU-UNIVASF"), col_local_mapa], 
-                    values='FALHAS', 
-                    color='FALHAS', 
-                    color_continuous_scale='Reds',
-                    title="Mapeamento de Áreas Críticas (Volume de Falhas Abertas)"
-                )
-                fig_tree.update_traces(root_color="lightgrey")
-                fig_tree.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=550)
-                st.plotly_chart(fig_tree, use_container_width=True)
-            else:
-                st.success("Não há falhas pendentes vinculadas a locais físicos.")
-        else:
-            st.info("Coluna de Localização não identificada na Fila de O.S.")
-    else:
-        st.success("A fila de O.S. está vazia. O parque está 100% operacional!")
+            with c_dir:
+                with st.container(border=True):
+                    st.markdown("##### Total O.S. x Faixa de Dias")
+                    df_faixa_g = df_pend.groupby(['FAIXA_DIAS', 'ORDEM_FAIXA']).size().reset_index(name='Total')
+                    df_faixa_g = df_faixa_g.sort_values('ORDEM_FAIXA', ascending=False)
+                    fig_faixa = px.bar(df_faixa_g, y='FAIXA_DIAS', x='Total', orientation='h', text='Total', color_discrete_sequence=['#70ad47'])
+                    fig_faixa.update_layout(height=200, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
+                    st.plotly_chart(fig_faixa, use_container_width=True)
+                    
+                with st.container(border=True):
+                    st.markdown("##### O.S. Pendente x Tipo de Manutenção")
+                    df_tp = df_pend['TIPO_MANUTENCAO'].value_counts().reset_index()
+                    df_tp.columns = ['Tipo', 'Total']
+                    fig_tp = px.pie(df_tp, names='Tipo', values='Total', hole=0.5, color_discrete_sequence=['#44546a', '#70ad47', '#e6e6e6'])
+                    fig_tp.update_traces(textposition='inside', textinfo='percent+label')
+                    fig_tp.update_layout(height=230, margin=dict(l=0, r=0, t=10, b=0), showlegend=True)
+                    st.plotly_chart(fig_tp, use_container_width=True)
 
 # =====================================================================
-# TAB 2: CICLO DE VIDA DO PARQUE
-# =====================================================================
-with tab_parque:
-    if not df_inv.empty:
-        df_ativos = df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']
-        total_ativos = len(df_ativos)
-        qtd_critico_idade = len(df_ativos[df_ativos['Idade Equipamento Num'] > 10])
-        pct_critico_idade = (qtd_critico_idade / total_ativos * 100) if total_ativos > 0 else 0
-        qtd_mp_ok = len(df_ativos[df_ativos['Ordem Status MP'].isin([6, 7])])
-        pct_mp_ok = (qtd_mp_ok / total_ativos * 100) if total_ativos > 0 else 0
-        qtd_fora_garantia = len(df_ativos[df_ativos['Status Garantia'] == 'Fora de Garantia'])
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Equipamentos Ativos", f"{total_ativos:,}".replace(",", "."))
-        c2.metric("Críticos (> 10 anos)", f"{pct_critico_idade:.1f}%", f"{qtd_critico_idade} ativos antigos", delta_color="inverse")
-        c3.metric("Conformidade de MP (OK)", f"{pct_mp_ok:.1f}%", "Meta: 100%")
-        c4.metric("Fora de Garantia", f"{(qtd_fora_garantia/total_ativos*100):.1f}%", f"{qtd_fora_garantia} ativos")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        g1, g2 = st.columns(2)
-        with g1:
-            st.markdown("##### Distribuição por Faixa de Idade")
-            df_faixa = df_ativos.groupby(['Faixa de Idade', 'Ordem Faixa Idade']).size().reset_index(name='Qtd')
-            df_faixa = df_faixa.sort_values(by='Ordem Faixa Idade')
-            fig_faixa = px.bar(df_faixa, x='Faixa de Idade', y='Qtd', text='Qtd', color_discrete_sequence=['#154899'])
-            fig_faixa.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=300, xaxis_title=None, yaxis_title=None)
-            st.plotly_chart(fig_faixa, use_container_width=True)
-            
-        with g2:
-            st.markdown("##### Status Geral das Manutenções Programadas")
-            mapa_nomes = {7: "Novo ou Garantia", 6: "Em Dia (OK)", 5: "Vence em 3m", 4: "Vence em 45d", 3: "Vencido (+1a)", 2: "Crítico (+2a)", 1: "Nunca Realizado (NR)"}
-            df_ativos['Status_Label'] = df_ativos['Ordem Status MP'].map(mapa_nomes)
-            df_status_mp = df_ativos['Status_Label'].value_counts().reset_index()
-            df_status_mp.columns = ['Status', 'Quantidade']
-            fig_pie_mp = px.pie(df_status_mp, values='Quantidade', names='Status', hole=0.4, color_discrete_sequence=px.colors.qualitative.Safe)
-            fig_pie_mp.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=300)
-            st.plotly_chart(fig_pie_mp, use_container_width=True)
-
-# =====================================================================
-# TAB 3: CENTRAL OPERACIONAL DE O.S. PENDENTES
+# TAB 2: CENTRAL OPERACIONAL DE O.S. PENDENTES
 # =====================================================================
 with tab_fila:
     if not df_pend.empty:
@@ -374,82 +360,7 @@ with tab_fila:
             st.warning("Ajuste a busca para carregar as fichas técnicas.")
 
 # =====================================================================
-# TAB 4: INDICADORES (FOTOGRAFIA DO MOMENTO)
-# =====================================================================
-with tab_indicadores:
-    tma_g_12 = 0; tma_mc_12 = 0; tma_mp_12 = 0
-    if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
-        df_e = df_enc.copy()
-        df_e['DURACAO'] = (df_e['ENCERRAMENTO'] - df_e['ABERTURA']).dt.days
-        hoje = pd.Timestamp(datetime.today().date())
-        df_12m = df_e[df_e['ENCERRAMENTO'] >= (hoje - pd.DateOffset(months=12))]
-        tma_g_12 = df_12m['DURACAO'].mean() if not df_12m.empty else 0
-        
-        col_classe_e = get_col(df_12m, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
-        if col_classe_e:
-            cond_mc = df_12m[col_classe_e].astype(str).str.upper().str.contains('CORR|MC|QUEBRA')
-            tma_mc_12 = df_12m[cond_mc]['DURACAO'].mean() if not df_12m[cond_mc].empty else 0
-            cond_mp = df_12m[col_classe_e].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA')
-            tma_mp_12 = df_12m[cond_mp]['DURACAO'].mean() if not df_12m[cond_mp].empty else 0
-
-    tot_pend = 0; tot_crit = 0; tm_aberta_geral = 0; tm_aberta_mc = 0
-    if not df_pend.empty:
-        tot_pend = len(df_pend)
-        col_critico_ind = get_col(df_pend, ['EQUIPAMENTO CRÍTICO', 'EQUIPAMENTO CRITICO'])
-        if col_critico_ind:
-            tot_crit = len(df_pend[df_pend[col_critico_ind].astype(str).str.upper().str.strip() == 'SIM'])
-        tm_aberta_geral = df_pend['DIAS_EM_ABERTO'].mean()
-        df_pend_mc = df_pend[df_pend['TIPO_MANUTENCAO'] == 'CORRETIVA']
-        tm_aberta_mc = df_pend_mc['DIAS_EM_ABERTO'].mean() if not df_pend_mc.empty else 0
-
-    st.markdown("<h4 style='color: #32A347; margin-bottom: 5px; margin-top: 5px;'>Visão Geral de Desempenho e Fila</h4>", unsafe_allow_html=True)
-    
-    ind_c1, ind_c2, ind_c3, ind_c4, ind_c5 = st.columns(5)
-    ind_c1.metric("TMA Geral", f"{tma_g_12:.1f} Dias", help="Tempo Médio de Atendimento Geral (Últimos 12 meses)")
-    ind_c2.metric("TMA Corretiva", f"{tma_mc_12:.1f} Dias", help="Tempo Médio de Atendimento de O.S. Corretivas (Últimos 12 meses)")
-    ind_c3.metric("TMA Programada", f"{tma_mp_12:.1f} Dias", help="Tempo Médio de Atendimento de O.S. Preventivas/Calibrações (Últimos 12 meses)")
-    ind_c4.metric("O.S. Pendentes", f"{tot_pend}", f"{tot_crit} Críticas", delta_color="inverse" if tot_crit > 0 else "normal", help="Volume total de Ordens de Serviço abertas na fila")
-    ind_c5.metric("Espera Média (Abertas)", f"{tm_aberta_geral:.1f} Dias", f"Corretivas: {tm_aberta_mc:.1f} d", delta_color="inverse" if tm_aberta_geral > 0 else "normal", help="Média de dias em aberto considerando as O.S. ainda na fila")
-
-    st.markdown("---")
-    
-    if not df_pend.empty:
-        col_estado_graf = get_col(df_pend, ['ESTADO', 'ESTADO DA O.S.'])
-        col_os_graf = get_col(df_pend, ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS', 'OS_KEY'])
-        
-        if col_estado_graf and col_os_graf:
-            c_esq, c_dir = st.columns([1.2, 1])
-            with c_esq:
-                with st.container(border=True):
-                    st.markdown("##### Média de Dias em Aberto x Total de O.S. por Estado")
-                    df_est = df_pend.groupby(col_estado_graf).agg(Total_OS=(col_os_graf, 'count'), Media_Dias=('DIAS_EM_ABERTO', 'mean')).reset_index()
-                    df_est = df_est.sort_values('Total_OS', ascending=True)
-                    fig_est = go.Figure()
-                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Total_OS'], name='Total O.S.', orientation='h', marker_color='#70ad47'))
-                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Media_Dias'], name='Média Dias em Aberto', orientation='h', marker_color='#44546a'))
-                    fig_est.update_layout(barmode='group', height=500, margin=dict(l=0, r=0, t=20, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5))
-                    st.plotly_chart(fig_est, use_container_width=True)
-            
-            with c_dir:
-                with st.container(border=True):
-                    st.markdown("##### Total O.S. x Faixa de Dias")
-                    df_faixa_g = df_pend.groupby(['FAIXA_DIAS', 'ORDEM_FAIXA']).size().reset_index(name='Total')
-                    df_faixa_g = df_faixa_g.sort_values('ORDEM_FAIXA', ascending=False)
-                    fig_faixa = px.bar(df_faixa_g, y='FAIXA_DIAS', x='Total', orientation='h', text='Total', color_discrete_sequence=['#70ad47'])
-                    fig_faixa.update_layout(height=200, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
-                    st.plotly_chart(fig_faixa, use_container_width=True)
-                    
-                with st.container(border=True):
-                    st.markdown("##### O.S. Pendente x Tipo de Manutenção")
-                    df_tp = df_pend['TIPO_MANUTENCAO'].value_counts().reset_index()
-                    df_tp.columns = ['Tipo', 'Total']
-                    fig_tp = px.pie(df_tp, names='Tipo', values='Total', hole=0.5, color_discrete_sequence=['#44546a', '#70ad47', '#e6e6e6'])
-                    fig_tp.update_traces(textposition='inside', textinfo='percent+label')
-                    fig_tp.update_layout(height=230, margin=dict(l=0, r=0, t=10, b=0), showlegend=True)
-                    st.plotly_chart(fig_tp, use_container_width=True)
-
-# =====================================================================
-# TAB 5: PRODUTIVIDADE & ENTREGAS (FLUXO HISTÓRICO)
+# TAB 3: PRODUTIVIDADE & ENTREGAS (FLUXO HISTÓRICO)
 # =====================================================================
 with tab_produtividade:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Análise de Produtividade e Entregas Mensais</h3>", unsafe_allow_html=True)
@@ -559,10 +470,10 @@ with tab_produtividade:
         st.warning("Não há histórico de O.S. Encerradas para calcular a produtividade.")
 
 # =====================================================================
-# TAB 6: MAPAS E CONFORMIDADE (MATRIZ DE CALOR & DRILL-DOWN)
+# TAB 4: MAPAS E CONFORMIDADE (MATRIZ DE CALOR)
 # =====================================================================
-with tab_conformidade:
-    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Matriz de Conformidade de Manutenção Programada</h3>", unsafe_allow_html=True)
+with tab_calor:
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Mapa de Calor de Manutenção Programada</h3>", unsafe_allow_html=True)
     
     if not df_inv.empty:
         df_ativos = df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO'].copy()
@@ -620,6 +531,94 @@ with tab_conformidade:
             st.info("A coluna de status deste programa ainda não foi processada.")
     else:
         st.warning("Inventário não carregado. Verifique os dados.")
+
+# =====================================================================
+# TAB 5: MAPA DO PARQUE TECNOLÓGICO (VISÃO EXECUTIVA TREEMAP)
+# =====================================================================
+with tab_mapa:
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Mapa do Parque Tecnológico</h3>", unsafe_allow_html=True)
+    st.markdown("**Monitoramento de Disponibilidade e Concentração de Falhas por Setor | HU-UNIVASF**")
+
+    tot_ativos_mapa = len(df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']) if not df_inv.empty else 0
+    tot_parados_mapa = 0
+    
+    if not df_pend.empty:
+        col_parado_mapa = get_col(df_pend, ['EQUIPAMENTO PARADO', 'PARADO'])
+        if col_parado_mapa:
+            tot_parados_mapa = len(df_pend[df_pend[col_parado_mapa].astype(str).str.upper().str.strip() == 'SIM'])
+            
+    taxa_disp = ((tot_ativos_mapa - tot_parados_mapa) / tot_ativos_mapa * 100) if tot_ativos_mapa > 0 else 0
+    
+    map_c1, map_c2, map_c3 = st.columns(3)
+    map_c1.metric("Total de Ativos (Inventário)", f"{tot_ativos_mapa:,}".replace(",", "."))
+    map_c2.metric("Equipamentos Parados (Corretiva)", f"{tot_parados_mapa}", "Ação Imediata", delta_color="inverse")
+    map_c3.metric("Taxa de Disponibilidade Global", f"{taxa_disp:.1f}%", "Meta: 95.0%", delta_color="normal" if taxa_disp >= 95 else "inverse")
+
+    st.markdown("<br><h4 style='color: #154899;'>Concentração de O.S. por Localização Física</h4>", unsafe_allow_html=True)
+    
+    if not df_pend.empty:
+        col_local_mapa = get_col(df_pend, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO', 'LOCALIZACAO_INVENTARIO'])
+        if col_local_mapa:
+            df_tree = df_pend.groupby(col_local_mapa).size().reset_index(name='FALHAS')
+            df_tree = df_tree[df_tree['FALHAS'] > 0]
+            
+            if not df_tree.empty:
+                fig_tree = px.treemap(
+                    df_tree, 
+                    path=[px.Constant("HU-UNIVASF"), col_local_mapa], 
+                    values='FALHAS', 
+                    color='FALHAS', 
+                    color_continuous_scale='Reds',
+                    title="Mapeamento de Áreas Críticas (Volume de Falhas Abertas)"
+                )
+                fig_tree.update_traces(root_color="lightgrey")
+                fig_tree.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=550)
+                st.plotly_chart(fig_tree, use_container_width=True)
+            else:
+                st.success("Não há falhas pendentes vinculadas a locais físicos.")
+        else:
+            st.info("Coluna de Localização não identificada na Fila de O.S.")
+    else:
+        st.success("A fila de O.S. está vazia. O parque está 100% operacional!")
+
+# =====================================================================
+# TAB 6: CICLO DE VIDA DO PARQUE
+# =====================================================================
+with tab_parque:
+    if not df_inv.empty:
+        df_ativos = df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']
+        total_ativos = len(df_ativos)
+        qtd_critico_idade = len(df_ativos[df_ativos['Idade Equipamento Num'] > 10])
+        pct_critico_idade = (qtd_critico_idade / total_ativos * 100) if total_ativos > 0 else 0
+        qtd_mp_ok = len(df_ativos[df_ativos['Ordem Status MP'].isin([6, 7])])
+        pct_mp_ok = (qtd_mp_ok / total_ativos * 100) if total_ativos > 0 else 0
+        qtd_fora_garantia = len(df_ativos[df_ativos['Status Garantia'] == 'Fora de Garantia'])
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Equipamentos Ativos", f"{total_ativos:,}".replace(",", "."))
+        c2.metric("Críticos (> 10 anos)", f"{pct_critico_idade:.1f}%", f"{qtd_critico_idade} ativos antigos", delta_color="inverse")
+        c3.metric("Conformidade de MP (OK)", f"{pct_mp_ok:.1f}%", "Meta: 100%")
+        c4.metric("Fora de Garantia", f"{(qtd_fora_garantia/total_ativos*100):.1f}%", f"{qtd_fora_garantia} ativos")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        g1, g2 = st.columns(2)
+        with g1:
+            st.markdown("##### Distribuição por Faixa de Idade")
+            df_faixa = df_ativos.groupby(['Faixa de Idade', 'Ordem Faixa Idade']).size().reset_index(name='Qtd')
+            df_faixa = df_faixa.sort_values(by='Ordem Faixa Idade')
+            fig_faixa = px.bar(df_faixa, x='Faixa de Idade', y='Qtd', text='Qtd', color_discrete_sequence=['#154899'])
+            fig_faixa.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=300, xaxis_title=None, yaxis_title=None)
+            st.plotly_chart(fig_faixa, use_container_width=True)
+            
+        with g2:
+            st.markdown("##### Status Geral das Manutenções Programadas")
+            mapa_nomes = {7: "Novo ou Garantia", 6: "Em Dia (OK)", 5: "Vence em 3m", 4: "Vence em 45d", 3: "Vencido (+1a)", 2: "Crítico (+2a)", 1: "Nunca Realizado (NR)"}
+            df_ativos['Status_Label'] = df_ativos['Ordem Status MP'].map(mapa_nomes)
+            df_status_mp = df_ativos['Status_Label'].value_counts().reset_index()
+            df_status_mp.columns = ['Status', 'Quantidade']
+            fig_pie_mp = px.pie(df_status_mp, values='Quantidade', names='Status', hole=0.4, color_discrete_sequence=px.colors.qualitative.Safe)
+            fig_pie_mp.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=300)
+            st.plotly_chart(fig_pie_mp, use_container_width=True)
 
 # =====================================================================
 # TAB 7: GESTÃO FINANCEIRA & ATIVOS
