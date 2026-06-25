@@ -27,7 +27,7 @@ def carregar_mais_recente(nome_pasta):
         return pd.DataFrame()
 
 def carregar_os_encerradas():
-    """Lê TODA a pasta de OS Encerradas, filtra >= 2023 e remove duplicatas com segurança."""
+    """Lê TODA a pasta de OS Encerradas, filtra >= 2023 e remove duplicatas com estabilidade."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "01.OS_Encerradas")
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
@@ -45,10 +45,14 @@ def carregar_os_encerradas():
     if not lista_dfs: return pd.DataFrame()
     df_final = pd.concat(lista_dfs, ignore_index=True)
 
-    if 'O.S.' in df_final.columns:
-        df_final = df_final.dropna(subset=['O.S.'])
-        df_final['OS_KEY'] = df_final['O.S.'].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
-    else: return pd.DataFrame() 
+    colunas_os_possiveis = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
+    col_os = next((col for col in colunas_os_possiveis if col in df_final.columns), None)
+
+    if col_os:
+        df_final = df_final.dropna(subset=[col_os])
+        df_final['OS_KEY'] = df_final[col_os].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
+    else: 
+        return pd.DataFrame() 
 
     for col in ['ABERTURA', 'ENCERRAMENTO']:
         if col in df_final.columns:
@@ -56,7 +60,6 @@ def carregar_os_encerradas():
 
     if 'ENCERRAMENTO' in df_final.columns:
         df_final = df_final[df_final['ENCERRAMENTO'].dt.year >= 2023]
-        # CORREÇÃO DO BUG: Ordena pela data exata do encerramento para a conformidade não flutuar
         df_final = df_final.sort_values(by=['ENCERRAMENTO', 'REPORT_CREATED_AT'], ascending=[False, False])
     else:
         df_final = df_final.sort_values(by='REPORT_CREATED_AT', ascending=False)
@@ -67,8 +70,7 @@ def carregar_os_encerradas():
 def carregar_todas_atividades(nome_pasta="03.Atividades"):
     """
     Lê todos os relatórios mensais de atividades e os empilha.
-    Possui leitura blindada para caçar o cabeçalho do GETS nas linhas 4, 5 ou 6,
-    e aceita as variações de nome da coluna (N.º O.S., O.S., etc).
+    Busca dinamicamente o cabeçalho do GETS nas linhas 4, 5 ou 6.
     """
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
@@ -79,21 +81,17 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     if not arquivos: return pd.DataFrame()
         
     lista_dfs = []
-    # Todas as formas que o GETS gosta de chamar a Ordem de Serviço
     colunas_os_possiveis = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
 
     for arq in arquivos:
         try:
-            # 1ª Tentativa: Pular 5 linhas (cabeçalho na linha 6 - Padrão normal)
             df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
             df_temp.columns = df_temp.columns.str.strip().str.upper()
             
-            # Se não achou nenhuma das colunas de OS, tenta pular 4 linhas (linha 5)
             if not any(c in df_temp.columns for c in colunas_os_possiveis):
                 df_temp = pd.read_excel(arq, skiprows=4) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=4)
                 df_temp.columns = df_temp.columns.str.strip().str.upper()
 
-            # Se ainda não achou, tenta pular 3 linhas (linha 4)
             if not any(c in df_temp.columns for c in colunas_os_possiveis):
                 df_temp = pd.read_excel(arq, skiprows=3) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=3)
                 df_temp.columns = df_temp.columns.str.strip().str.upper()
@@ -104,29 +102,51 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     if not lista_dfs: return pd.DataFrame()
     df_final = pd.concat(lista_dfs, ignore_index=True)
     
-    # Encontra exatamente qual nome de coluna o GETS usou neste arquivo
     col_os = next((col for col in colunas_os_possiveis if col in df_final.columns), None)
     
     if col_os:
         df_final = df_final.dropna(subset=[col_os])
-        # Cria uma chave limpa padrão chamada "OS_KEY" para o Dashboard nunca se perder
         df_final['OS_KEY'] = df_final[col_os].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
         
     df_final = df_final.drop_duplicates()
     return df_final
+
+def gerar_curva_backlog():
+    """Conta o volume diário de O.S. Pendentes lendo o histórico de arquivos."""
+    pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
+    arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
+    
+    if not arquivos: return pd.DataFrame()
+    lista_historico = []
+    
+    for arq in arquivos:
+        try:
+            dt_snap = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
+            df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
+            df_temp.columns = df_temp.columns.str.strip().str.upper()
+            col_os = next((c for c in ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS'] if c in df_temp.columns), None)
+            if col_os:
+                qtd_os = df_temp[col_os].dropna().count()
+                lista_historico.append({'Data': dt_snap, 'Volume Fila': int(qtd_os)})
+        except: continue
+            
+    if not lista_historico: return pd.DataFrame()
+    df_hist = pd.DataFrame(lista_historico)
+    df_hist = df_hist.groupby('Data')['Volume Fila'].max().reset_index().sort_values(by='Data')
+    return df_hist
 
 # =====================================================================
 # 2. MOTOR DE TRATAMENTO E INTELIGÊNCIA (INVENTÁRIO)
 # =====================================================================
 
 def limpar_dimensao_equipamentos(df_inventario_bruto):
-    """Limpeza, unificação de colunas e tratamento do erro de datas numéricas do Excel."""
+    """Limpeza, unificação de colunas e tratamento de datas numéricas."""
     if df_inventario_bruto.empty: return pd.DataFrame()
     df = df_inventario_bruto.copy()
     
     if 'EQUIP_KEY' not in df.columns:
-        col_serie = 'N.º SÉRIE' if 'N.º SÉRIE' in df.columns else ('N. SÉRIE' if 'N. SÉRIE' in df.columns else None)
-        col_id = 'IDENTIFICADOR' if 'IDENTIFICADOR' in df.columns else ('ID' if 'ID' in df.columns else None)
+        col_serie = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df.columns), None)
+        col_id = next((c for c in ['IDENTIFICADOR', 'ID'] if c in df.columns), None)
         
         def gerar_key(row):
             sn = str(row[col_serie]).strip().upper() if col_serie and pd.notna(row[col_serie]) else ''
@@ -187,7 +207,7 @@ def limpar_dimensao_equipamentos(df_inventario_bruto):
     return df
 
 def enriquecer_base_inventario(df_inventario, df_os_encerradas):
-    """Cruza o Inventário com as OS Encerradas e calcula prazos, idade, garantia e ciclo de vida."""
+    """Cruza o Inventário com as OS Encerradas e calcula prazos, regras de carência de MP e garantia."""
     if df_inventario.empty: return pd.DataFrame()
     df_inv = df_inventario.copy()
     hoje = pd.Timestamp(datetime.today().date())
@@ -198,9 +218,9 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
     if not df_os_encerradas.empty:
         df_os = df_os_encerradas.copy()
         col_id_os = 'IDENTIFICADOR' if 'IDENTIFICADOR' in df_os.columns else 'ID'
-        col_serie_os = 'N.º SÉRIE' if 'N.º SÉRIE' in df_os.columns else ('N. SÉRIE' if 'N. SÉRIE' in df_os.columns else 'SÉRIE')
-        col_prog_os = 'PROGRAMA MP' if 'PROGRAMA MP' in df_os.columns else 'PROGRAMA'
-        col_data_os = 'ENCERRAMENTO' if 'ENCERRAMENTO' in df_os.columns else 'DATA'
+        col_serie_os = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'SÉRIE'] if c in df_os.columns), 'SÉRIE')
+        col_prog_os = next((c for c in ['PROGRAMA MP', 'PROGRAMA'] if c in df_os.columns), 'PROGRAMA')
+        col_data_os = 'ENCERRAMENTO'
         
         programas_interesse = ["PREVENTIVA", "CALIBRAÇÃO", "SEGURANÇA ELÉTRICA", "INSPEÇÃO E TESTE OPERACIONAL", "VALIDAÇÃO", "QUALIFICAÇÃO TÉRMICA"]
         
@@ -236,19 +256,12 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
 
     if 'AQUISIÇÃO' in df_inv.columns:
         df_inv['Idade Equipamento Num'] = np.round((hoje - df_inv['AQUISIÇÃO']).dt.days / 365.25, 2)
-        df_inv['Tempo ate Fim de Vida Num'] = 10 - df_inv['Idade Equipamento Num']
-        df_inv['% Cumprimento Vida Útil Preciso'] = df_inv['Idade Equipamento Num'] / 10
-        cond_idade = [df_inv['Idade Equipamento Num'] > 10, df_inv['Idade Equipamento Num'] >= 8, df_inv['Idade Equipamento Num'] >= 5, df_inv['Idade Equipamento Num'] >= 3]
-        df_inv['Faixa de Idade'] = np.select(cond_idade, ["> 10 anos", "8 a 10 anos", "5 a 8 anos", "3 a 5 anos"], default="0 a 3 anos")
-        df_inv['Ordem Faixa Idade'] = np.select(cond_idade, [5, 4, 3, 2], default=1)
+        df_inv['Faixa de Idade'] = np.select([df_inv['Idade Equipamento Num'] > 10, df_inv['Idade Equipamento Num'] >= 8, df_inv['Idade Equipamento Num'] >= 5, df_inv['Idade Equipamento Num'] >= 3], ["> 10 anos", "8 a 10 anos", "5 a 8 anos", "3 a 5 anos"], default="0 a 3 anos")
+        df_inv['Ordem Faixa Idade'] = np.select([df_inv['Idade Equipamento Num'] > 10, df_inv['Idade Equipamento Num'] >= 8, df_inv['Idade Equipamento Num'] >= 5, df_inv['Idade Equipamento Num'] >= 3], [5, 4, 3, 2], default=1)
     else:
         df_inv['Idade Equipamento Num'] = 0
         df_inv['Faixa de Idade'] = "0 a 3 anos"
         df_inv['Ordem Faixa Idade'] = 1
 
-    if 'GARANTIA' in df_inv.columns:
-        df_inv['Status Garantia'] = np.where(df_inv['GARANTIA'].isna() | (df_inv['GARANTIA'] < hoje), "Fora de Garantia", "Na Garantia")
-    else:
-        df_inv['Status Garantia'] = "Fora de Garantia"
-
+    df_inv['Status Garantia'] = np.where(df_inv['GARANTIA'].isna() | (df_inv['GARANTIA'] < hoje), "Fora de Garantia", "Na Garantia") if 'GARANTIA' in df_inv.columns else "Fora de Garantia"
     return df_inv
