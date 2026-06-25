@@ -285,20 +285,32 @@ with tab_fila:
                         # Match exato de chave de cruzamento (OS_KEY gerado blindado no motor)
                         df_historico_os = df_at_temp[df_at_temp['OS_KEY'] == os_busca] if 'OS_KEY' in df_at_temp.columns else pd.DataFrame()
                         
-                        if not df_historico_os.empty:
-                            col_data_act = get_col(df_historico_os, ['DATA', 'DATA DA EXECUÇÃO', 'DATA EXECUÇÃO', 'DT EXECUÇÃO'])
-                            col_desc_act = get_col(df_historico_os, ['ATIVIDADE', 'DESCRIÇÃO', 'HISTÓRICO', 'DESCRICAO'])
-                            col_exec_act = get_col(df_historico_os, ['TÉCNICO', 'EXECUTOR', 'RESPONSÁVEL', 'TECNICO'])
-                            
-                            df_print_act = df_historico_os[[c for c in [col_data_act, col_exec_act, col_desc_act] if c]].copy()
-                            if col_data_act:
-                                df_print_act[col_data_act] = pd.to_datetime(df_print_act[col_data_act], errors='coerce')
-                                df_print_act = df_print_act.sort_values(by=col_data_act, ascending=False)
-                                df_print_act[col_data_act] = df_print_act[col_data_act].dt.strftime('%d/%m/%Y %H:%M')
+                       if not df_historico_os.empty:
+                                # 1. Mapeamento exato das colunas solicitadas
+                                col_dt_inicio = get_col(df_historico_os, ['DATA INÍCIO', 'DATA INICIO', 'INÍCIO', 'INICIO', 'DATA DA EXECUÇÃO', 'DATA'])
+                                col_dt_fim = get_col(df_historico_os, ['DATA TÉRMINO', 'DATA TERMINO', 'TÉRMINO', 'TERMINO', 'FIM'])
+                                col_atividade = get_col(df_historico_os, ['ATIVIDADE', 'ATIVIDADES', 'TIPO ATIVIDADE'])
+                                col_servico = get_col(df_historico_os, ['SERVIÇO EXECUTADO', 'SERVICO EXECUTADO', 'SERVIÇO', 'DESCRIÇÃO', 'HISTÓRICO'])
+                                col_exec_act = get_col(df_historico_os, ['EXECUTOR', 'TÉCNICO', 'RESPONSÁVEL', 'TECNICO'])
                                 
-                            st.dataframe(df_print_act, use_container_width=True, hide_index=True)
-                        else:
-                            st.info("Esta O.S. está na fila aguardando o primeiro apontamento técnico.")
+                                # 2. Seleciona apenas as colunas que foram encontradas na planilha
+                                cols_print_act = [c for c in [col_dt_inicio, col_dt_fim, col_exec_act, col_atividade, col_servico] if c]
+                                df_print_act = df_historico_os[cols_print_act].copy()
+                                
+                                # 3. Ordena pela Data de Início e formata para o padrão Brasileiro
+                                if col_dt_inicio:
+                                    df_print_act[col_dt_inicio] = pd.to_datetime(df_print_act[col_dt_inicio], errors='coerce')
+                                    df_print_act = df_print_act.sort_values(by=col_dt_inicio, ascending=False)
+                                    df_print_act[col_dt_inicio] = df_print_act[col_dt_inicio].dt.strftime('%d/%m/%Y %H:%M')
+                                    
+                                # Formata a Data de Término (se existir)
+                                if col_dt_fim:
+                                    df_print_act[col_dt_fim] = pd.to_datetime(df_print_act[col_dt_fim], errors='coerce').dt.strftime('%d/%m/%Y %H:%M')
+                                    
+                                # 4. Plota a tabela bonitona na tela
+                                st.dataframe(df_print_act, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("Esta O.S. está na fila aguardando o primeiro apontamento técnico.")
                     else:
                         st.info("Logs indisponíveis na pasta '03.Atividades'.")
         else:
