@@ -18,7 +18,7 @@ st.set_page_config(
     page_title="Dashboard | Conecta",
     page_icon=":material/bar_chart:",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded" # Deixei expandido para mostrar os filtros
 )
 
 st.markdown("""
@@ -74,23 +74,97 @@ with col_logo2:
 st.markdown("---")
 
 # =====================================================================
-# 3. CARREGAMENTO E PROCESSAMENTO INTEGRADO DOS DADOS
+# 3. CARREGAMENTO DOS DADOS (CACHE)
 # =====================================================================
-with st.spinner("Consolidando bases e recalculando indicadores..."):
-    # Executa as leituras via motores
+@st.cache_data(ttl=600)
+def obter_dados_processados():
     df_inv_bruto = carregar_mais_recente("04.Inventário")
     df_pend_bruto = carregar_mais_recente("02.OS_Pendentes")
     df_enc_bruto = carregar_os_encerradas()
     
-    # Processa regras de negócio do Inventário
     df_inv_limpo = limpar_dimensao_equipamentos(df_inv_bruto)
-    df_inv = enriquecer_base_inventario(df_inv_limpo, df_enc_bruto)
+    df_inv_final = enriquecer_base_inventario(df_inv_limpo, df_enc_bruto)
+    
+    return df_inv_final, df_pend_bruto, df_enc_bruto
 
-# Criação das abas executivas
-tab_parque, tab_fila, tab_produtividade = st.tabs([
+with st.spinner("Sincronizando banco de dados..."):
+    df_inv, df_pend_bruto, df_enc_bruto = obter_dados_processados()
+
+# =====================================================================
+# 4. BARRA LATERAL (FILTROS CRUZADOS ESTILO POWER BI)
+# =====================================================================
+st.sidebar.markdown("<h2 style='text-align: center; color: #154899;'>Filtros Globais</h2>", unsafe_allow_html=True)
+st.sidebar.markdown("---")
+
+# Função auxiliar de busca flexível de colunas
+def get_col(df, options):
+    for o in options:
+        if o in df.columns: return o
+    return None
+
+# --- Extração de Listas Únicas para os Filtros ---
+locais_disponiveis = []
+tipos_disponiveis = []
+
+if not df_inv.empty:
+    if 'LOCALIZAÇÃO FÍSICA' in df_inv.columns:
+        locais_disponiveis = sorted(df_inv['LOCALIZAÇÃO FÍSICA'].dropna().unique())
+    if 'DESCRIÇÃO' in df_inv.columns:
+        tipos_disponiveis = sorted(df_inv['DESCRIÇÃO'].dropna().unique())
+
+# --- Widgets do Streamlit ---
+filtro_local = st.sidebar.multiselect("📍 Setor / Localização", locais_disponiveis, placeholder="Todos os setores")
+filtro_tipo = st.sidebar.multiselect("📟 Tipo de Equipamento", tipos_disponiveis, placeholder="Todos os tipos")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Filtro Exclusivo de Produtividade**")
+
+# Filtro de Período (Extrai os meses de encerramento da base)
+meses_disponiveis = []
+if not df_enc_bruto.empty and 'ENCERRAMENTO' in df_enc_bruto.columns:
+    df_enc_bruto['AnoMes'] = df_enc_bruto['ENCERRAMENTO'].dt.strftime('%Y-%m')
+    meses_disponiveis = sorted(df_enc_bruto['AnoMes'].dropna().unique(), reverse=True)
+    
+filtro_periodo = st.sidebar.multiselect("📅 Mês de Encerramento", meses_disponiveis, placeholder="Todo o histórico")
+
+# --- APLICAÇÃO DOS FILTROS (MÁQUINA DE CRUZAMENTO) ---
+# 1. Filtra Inventário
+if filtro_local and not df_inv.empty:
+    df_inv = df_inv[df_inv['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
+if filtro_tipo and not df_inv.empty:
+    df_inv = df_inv[df_inv['DESCRIÇÃO'].isin(filtro_tipo)]
+
+# 2. Filtra Pendentes
+if not df_pend_bruto.empty:
+    df_pend = df_pend_bruto.copy()
+    col_loc_p = get_col(df_pend, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO'])
+    col_tip_p = get_col(df_pend, ['TIPO EQUIPAMENTO', 'EQUIPAMENTO'])
+    
+    if filtro_local and col_loc_p: df_pend = df_pend[df_pend[col_loc_p].isin(filtro_local)]
+    if filtro_tipo and col_tip_p:  df_pend = df_pend[df_pend[col_tip_p].isin(filtro_tipo)]
+else:
+    df_pend = pd.DataFrame()
+
+# 3. Filtra Encerradas
+if not df_enc_bruto.empty:
+    df_enc = df_enc_bruto.copy()
+    col_loc_e = get_col(df_enc, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO'])
+    col_tip_e = get_col(df_enc, ['TIPO EQUIPAMENTO', 'EQUIPAMENTO'])
+    
+    if filtro_local and col_loc_e: df_enc = df_enc[df_enc[col_loc_e].isin(filtro_local)]
+    if filtro_tipo and col_tip_e:  df_enc = df_enc[df_enc[col_tip_e].isin(filtro_tipo)]
+    if filtro_periodo:             df_enc = df_enc[df_enc['AnoMes'].isin(filtro_periodo)]
+else:
+    df_enc = pd.DataFrame()
+
+# =====================================================================
+# 5. ABAS DO PAINEL
+# =====================================================================
+tab_parque, tab_fila, tab_produtividade, tab_financeiro = st.tabs([
     "🏥 Ciclo de Vida do Parque", 
     "📥 Fila Operacional (Pendentes)", 
-    "📊 Produtividade & TMA"
+    "📊 Produtividade & TMA",
+    "💰 Gestão Financeira & Ativos"
 ])
 
 # =====================================================================
@@ -111,7 +185,6 @@ with tab_parque:
         qtd_vencido = len(df_ativos[df_ativos['Ordem Status MP'].isin([2, 3])])
         qtd_fora_garantia = len(df_ativos[df_ativos['Status Garantia'] == 'Fora de Garantia'])
 
-        # Cards de Indicadores
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Equipamentos Ativos", f"{total_ativos:,}".replace(",", "."))
         c2.metric("Críticos (> 10 anos)", f"{pct_critico_idade:.1f}%", f"{qtd_critico_idade} ativos antigos", delta_color="inverse")
@@ -120,7 +193,6 @@ with tab_parque:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Gráficos de Ciclo de Vida
         g1, g2 = st.columns(2)
         with g1:
             st.markdown("##### Distribuição por Faixa de Idade")
@@ -132,7 +204,6 @@ with tab_parque:
             
         with g2:
             st.markdown("##### Status Geral das Manutenções Programadas")
-            # Mapeamento do nome amigável para exibição baseado na ordem criada
             mapa_nomes = {6: "Em Dia (OK)", 5: "Vence em 3m", 4: "Vence em 45d", 3: "Vencido (+1a)", 2: "Crítico (+2a)", 1: "Nunca Realizado (NR)"}
             df_ativos['Status_Label'] = df_ativos['Ordem Status MP'].map(mapa_nomes)
             df_status_mp = df_ativos['Status_Label'].value_counts().reset_index()
@@ -142,21 +213,18 @@ with tab_parque:
             fig_pie_mp.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=300, showlegend=True)
             st.plotly_chart(fig_pie_mp, use_container_width=True)
     else:
-        st.info("Base de inventário não disponível.")
+        st.info("Base de inventário vazia ou filtrada por completo.")
 
 # =====================================================================
 # TAB 2: FILA OPERACIONAL (PENDENTES)
 # =====================================================================
 with tab_fila:
-    if not df_pend_bruto.empty:
-        # Copia e limpa para evitar interferência de colunas semelhantes do GETS
-        df_p = df_pend_bruto.copy()
-        df_p.columns = df_p.columns.str.strip().str.upper()
+    if not df_pend.empty:
+        df_p = df_pend.copy()
         
         total_pendentes = len(df_p)
+        col_classe = get_col(df_p, ['CLASSE'])
         
-        # Mapeamento robusto de classes de OS
-        col_classe = 'CLASSE' if 'CLASSE' in df_p.columns else None
         if col_classe:
             qtd_corretivas = len(df_p[df_p[col_classe].str.upper().str.strip().isin(['MC', 'MANUTENÇÃO CORRETIVA', 'CORRETIVA'])])
             qtd_programadas = len(df_p[df_p[col_classe].str.upper().str.strip().isin(['MP', 'MANUTENÇÃO PROGRAMADA', 'PREVENTIVA', 'CALIBRAÇÃO'])])
@@ -167,8 +235,7 @@ with tab_fila:
         pct_corretiva = (qtd_corretivas / total_pendentes * 100) if total_pendentes > 0 else 0
         pct_programada = (qtd_programadas / total_pendentes * 100) if total_pendentes > 0 else 0
         
-        # Cálculo de tempo de fila (DAX DATEDIFF)
-        col_abertura = 'ABERTURA' if 'ABERTURA' in df_p.columns else None
+        col_abertura = get_col(df_p, ['ABERTURA'])
         if col_abertura:
             df_p[col_abertura] = pd.to_datetime(df_p[col_abertura], errors='coerce')
             hoje = pd.Timestamp(datetime.today().date())
@@ -178,7 +245,6 @@ with tab_fila:
             df_p['DIAS_EM_ABERTO'] = 0
             tma_aberto = 0
 
-        # Cards da Fila
         f1, f2, f3, f4 = st.columns(4)
         f1.metric("O.S. Pendentes (Total)", total_pendentes)
         f2.metric("Nº Corretivas (% Fila)", f"{qtd_corretivas} chamados", f"{pct_corretiva:.1f}% MC", delta_color="inverse")
@@ -187,11 +253,9 @@ with tab_fila:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Gráficos da Fila
         gf1, gf2 = st.columns(2)
         with gf1:
             st.markdown("##### Envelhecimento da Fila (Faixa de Dias)")
-            # Criação dinâmica das faixas estruturadas no DAX original
             condicoes = [df_p['DIAS_EM_ABERTO'] <= 5, df_p['DIAS_EM_ABERTO'] <= 15, df_p['DIAS_EM_ABERTO'] <= 30, df_p['DIAS_EM_ABERTO'] <= 60]
             df_p['Faixa_Fila'] = np.select(condicoes, ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias"], default="Mais de 60 dias")
             df_p['Ordem_Faixa'] = np.select(condicoes, [1, 2, 3, 4], default=5)
@@ -205,7 +269,7 @@ with tab_fila:
             
         with gf2:
             st.markdown("##### Distribuição por Estado Atual do Chamado")
-            col_estado = 'ESTADO' if 'ESTADO' in df_p.columns else ('ESTADO DA O.S.' if 'ESTADO DA O.S.' in df_p.columns else None)
+            col_estado = get_col(df_p, ['ESTADO', 'ESTADO DA O.S.'])
             if col_estado:
                 df_estado = df_p[col_estado].value_counts().reset_index()
                 df_estado.columns = ['Estado', 'Qtd']
@@ -213,19 +277,16 @@ with tab_fila:
                 fig_est.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=300)
                 st.plotly_chart(fig_est, use_container_width=True)
     else:
-        st.success("Nenhuma ordem de serviço pendente ou travada na fila!")
+        st.success("Nenhuma O.S. para os filtros selecionados!")
 
 # =====================================================================
 # TAB 3: PRODUTIVIDADE E TMA
 # =====================================================================
 with tab_produtividade:
-    if not df_enc_bruto.empty:
-        df_e = df_enc_bruto.copy()
-        df_e.columns = df_e.columns.str.strip().str.upper()
-        
+    if not df_enc.empty:
+        df_e = df_enc.copy()
         total_entregas = len(df_e)
         
-        # SLA e Cálculo de TMA Histórico
         if 'ABERTURA' in df_e.columns and 'ENCERRAMENTO' in df_e.columns:
             df_e['ABERTURA'] = pd.to_datetime(df_e['ABERTURA'], errors='coerce')
             df_e['ENCERRAMENTO'] = pd.to_datetime(df_e['ENCERRAMENTO'], errors='coerce')
@@ -235,18 +296,15 @@ with tab_produtividade:
             df_e['DURACAO'] = 0
             tma_geral = 0
             
-        # Cards de Performance
         p1, p2, p3 = st.columns(3)
-        p1.metric("Total de Entregas (Histórico)", f"{total_entregas:,}".replace(",", "."))
+        p1.metric("Total de Entregas (Filtrado)", f"{total_entregas:,}".replace(",", "."))
         p2.metric("TMA Geral do Atendimento", f"{tma_geral:.1f} dias", "Tempo médio de fechamento")
-        p3.metric("Velocidade Média Estimada", f"{int(total_entregas / 12 if total_entregas > 12 else total_entregas)} /mês", "Entregas diluídas no tempo")
+        p3.metric("Velocidade Média Estimada", f"{int(total_entregas / 12 if total_entregas > 12 else total_entregas)} /mês", "Baseado na seleção")
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Histórico de Fechamento por Período
-        if 'ENCERRAMENTO' in df_e.columns:
+        if 'AnoMes' in df_e.columns:
             st.markdown("##### Histórico Mensal de Conclusão de O.S.")
-            df_e['AnoMes'] = df_e['ENCERRAMENTO'].dt.strftime('%Y-%m')
             df_mensal = df_e.groupby('AnoMes').size().reset_index(name='Entregas')
             df_mensal = df_mensal.sort_values(by='AnoMes')
             
@@ -255,4 +313,56 @@ with tab_produtividade:
             fig_mensal.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=320, xaxis_title=None, yaxis_title=None)
             st.plotly_chart(fig_mensal, use_container_width=True)
     else:
-        st.info("Aguardando relatórios consolidados de encerramento para calcular volumetria e TMA.")
+        st.info("Nenhuma entrega registrada para este cruzamento de filtros.")
+
+# =====================================================================
+# TAB 4: GESTÃO FINANCEIRA & ATIVOS
+# =====================================================================
+with tab_financeiro:
+    if not df_inv.empty:
+        df_fin = df_inv.copy()
+        
+        for col in ['VALOR (R$)', 'CUSTO PEÇA (R$)', 'CUSTO SERVIÇO EXTERNO (R$)']:
+            if col in df_fin.columns: df_fin[col] = pd.to_numeric(df_fin[col], errors='coerce').fillna(0)
+            else: df_fin[col] = 0.0
+                
+        df_fin_ativos = df_fin[df_fin['STATUS_EQUIPAMENTO'] == 'ATIVO']
+        
+        patrimonio_total = df_fin_ativos['VALOR (R$)'].sum()
+        custo_pecas_total = df_fin_ativos['CUSTO PEÇA (R$)'].sum()
+        custo_servicos_total = df_fin_ativos['CUSTO SERVIÇO EXTERNO (R$)'].sum()
+        custo_manutencao_total = custo_pecas_total + custo_servicos_total
+        ticket_medio_ativo = df_fin_ativos['VALOR (R$)'].mean() if len(df_fin_ativos) > 0 else 0
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Investimento Total (Patrimônio)", f"R$ {patrimonio_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        m2.metric("Custo Acumulado Manutenção", f"R$ {custo_manutencao_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        m3.metric("Ticket Médio por Ativo", f"R$ {ticket_medio_ativo:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        m4.metric("Despesa com Serviços Externos", f"R$ {custo_servicos_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        fin_g1, fin_g2 = st.columns(2)
+        
+        with fin_g1:
+            st.markdown("##### 📊 Valor Patrimonial Acumulado por Tipo de Equipamento")
+            col_desc = get_col(df_fin_ativos, ['DESCRIÇÃO', 'TIPO EQUIPAMENTO'])
+            if col_desc:
+                df_val_tipo = df_fin_ativos.groupby(col_desc)['VALOR (R$)'].sum().reset_index(name='Total_Valor')
+                df_val_tipo = df_val_tipo.sort_values(by='Total_Valor', ascending=False).head(10)
+                fig_val_tipo = px.bar(df_val_tipo, x='Total_Valor', y=col_desc, orientation='h', text='Total_Valor', color_discrete_sequence=['#154899'])
+                fig_val_tipo.update_traces(texttemplate='R$ %{text:,.2s}', textposition='outside')
+                fig_val_tipo.update_layout(yaxis={'categoryorder':'total ascending'}, margin=dict(l=20, r=20, t=20, b=20), height=350, xaxis_title=None, yaxis_title=None)
+                st.plotly_chart(fig_val_tipo, use_container_width=True)
+                
+        with fin_g2:
+            st.markdown("##### 📈 Curva Histórica de Investimentos em Aquisições")
+            if 'AQUISIÇÃO' in df_fin_ativos.columns:
+                df_invest_tempo = df_fin_ativos.copy()
+                df_invest_tempo['Ano_Aquisicao'] = df_invest_tempo['AQUISIÇÃO'].dt.year
+                df_invest_tempo = df_invest_tempo[df_invest_tempo['Ano_Aquisicao'].notna() & (df_invest_tempo['Ano_Aquisicao'] >= 2010)]
+                df_curva = df_invest_tempo.groupby('Ano_Aquisicao')['VALOR (R$)'].sum().reset_index(name='Investimento')
+                df_curva = df_curva.sort_values(by='Ano_Aquisicao')
+                
+                fig_curva = px.area(df_curva, x='Ano_Aquisicao', y='Investimento', markers=True, color_discrete_sequence=['#32A347'])
+                fig_curva.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=350, xaxis_title="Ano de Compra", yaxis_title=None)
+                st.plotly_chart(fig_curva, use_container_width=True)
