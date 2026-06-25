@@ -7,12 +7,25 @@ from datetime import datetime
 # =====================================================================
 # 1. FUNÇÃO AUXILIAR SUPREMA (LEITURA BLINDADA GETS)
 # =====================================================================
+def get_arquivos(pasta_alvo):
+    """Pega todos os formatos possíveis de planilhas na pasta."""
+    return glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + \
+           glob.glob(os.path.join(pasta_alvo, "*.xls")) + \
+           glob.glob(os.path.join(pasta_alvo, "*.csv"))
+
 def ler_arquivo_gets(caminho_arq, colunas_alvo):
-    """Lê o arquivo caçando o cabeçalho correto, testando da linha 0 até a 8."""
+    """Lê o arquivo testando várias linhas de cabeçalho e suportando .xls antigo."""
     for skip in [5, 4, 3, 0, 1, 2, 6, 7, 8]:
         try:
-            df = pd.read_excel(caminho_arq, skiprows=skip) if caminho_arq.endswith('.xlsx') else pd.read_csv(caminho_arq, skiprows=skip, low_memory=False)
+            # Checa a extensão para não tentar ler um Excel velho como se fosse CSV
+            if caminho_arq.lower().endswith('.xlsx') or caminho_arq.lower().endswith('.xls'):
+                df = pd.read_excel(caminho_arq, skiprows=skip)
+            else:
+                df = pd.read_csv(caminho_arq, skiprows=skip, low_memory=False)
+                
             df.columns = df.columns.astype(str).str.strip().str.upper()
+            
+            # Se achou as colunas que a gente quer, a leitura deu certo!
             if any(c in df.columns for c in colunas_alvo):
                 return df
         except:
@@ -23,18 +36,13 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
 # 2. INGESTÃO DE DADOS E EMPILHAMENTO
 # =====================================================================
 def carregar_mais_recente(nome_pasta):
-    """Lê o último relatório de Inventário ou Fila Pendente."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
-    arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
+    arquivos = get_arquivos(pasta_alvo)
     
     if not arquivos: return pd.DataFrame()
     arq_recente = max(arquivos, key=os.path.getmtime)
     
-    if "Inventário" in nome_pasta or "Inventario" in nome_pasta:
-        colunas = ['IDENTIFICADOR', 'ID', 'N.º SÉRIE', 'N. SÉRIE', 'SÉRIE', 'PATRIMÔNIO']
-    else:
-        colunas = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
-        
+    colunas = ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO'] if "Invent" in nome_pasta else ['N.º O.S.', 'O.S.', 'OS']
     df = ler_arquivo_gets(arq_recente, colunas)
     if not df.empty:
         df['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq_recente), unit='s')
@@ -43,8 +51,7 @@ def carregar_mais_recente(nome_pasta):
 def carregar_os_encerradas():
     """Empilha todos os meses de Encerradas traduzindo formatos velhos e novos."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "01.OS_Encerradas")
-    arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
-    
+    arquivos = get_arquivos(pasta_alvo)
     if not arquivos: return pd.DataFrame()
 
     lista_dfs = []
@@ -58,7 +65,6 @@ def carregar_os_encerradas():
         'LOCALIZAÇÃO': 'LOCALIZAÇÃO FÍSICA',
         'EQUIPAMENTO': 'DESCRIÇÃO', 'TIPO EQUIPAMENTO': 'DESCRIÇÃO'
     }
-    
     colunas_busca = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
     
     for arq in arquivos:
@@ -74,10 +80,9 @@ def carregar_os_encerradas():
     if 'O.S.' in df_final.columns:
         df_final = df_final.dropna(subset=['O.S.'])
         df_final['OS_KEY'] = df_final['O.S.'].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
-    else: 
-        return pd.DataFrame() 
+    else: return pd.DataFrame() 
 
-    # Tratamento blindado de datas antigas quebradas
+    # Tratamento cego para datas que o Excel antigo manda quebradas
     for col in ['ABERTURA', 'ENCERRAMENTO']:
         if col in df_final.columns:
             datas_texto = pd.to_datetime(df_final[col], errors='coerce', dayfirst=True)
@@ -95,13 +100,10 @@ def carregar_os_encerradas():
     return df_final
 
 def carregar_todas_atividades(nome_pasta="03.Atividades"):
-    """Empilha o histórico de atividades usando a nova leitura blindada."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
-    arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
-    
+    arquivos = get_arquivos(pasta_alvo)
     if not arquivos and nome_pasta == "03.Atividades":
         return carregar_todas_atividades("03.Atividades_Recentes")
-        
     if not arquivos: return pd.DataFrame()
         
     lista_dfs = []
@@ -109,14 +111,12 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
 
     for arq in arquivos:
         df_temp = ler_arquivo_gets(arq, colunas_busca)
-        if not df_temp.empty:
-            lista_dfs.append(df_temp)
+        if not df_temp.empty: lista_dfs.append(df_temp)
             
     if not lista_dfs: return pd.DataFrame()
     df_final = pd.concat(lista_dfs, ignore_index=True)
     
     col_os = next((col for col in colunas_busca if col in df_final.columns), None)
-    
     if col_os:
         df_final = df_final.dropna(subset=[col_os])
         df_final['OS_KEY'] = df_final[col_os].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
@@ -125,11 +125,10 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     return df_final
 
 def gerar_curva_backlog():
-    """Histórico de Fila Pendente usando a nova leitura blindada."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
-    arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
-    
+    arquivos = get_arquivos(pasta_alvo)
     if not arquivos: return pd.DataFrame()
+    
     lista_historico = []
     colunas_busca = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
     
@@ -151,7 +150,6 @@ def gerar_curva_backlog():
 # 3. MOTOR DE TRATAMENTO E INTELIGÊNCIA (INVENTÁRIO)
 # =====================================================================
 def limpar_dimensao_equipamentos(df_inventario_bruto):
-    """Limpeza, unificação de colunas e tratamento de datas numéricas."""
     if df_inventario_bruto.empty: return pd.DataFrame()
     df = df_inventario_bruto.copy()
     
@@ -218,7 +216,6 @@ def limpar_dimensao_equipamentos(df_inventario_bruto):
     return df
 
 def enriquecer_base_inventario(df_inventario, df_os_encerradas):
-    """Cruza o Inventário com as OS Encerradas e calcula prazos e garantia."""
     if df_inventario.empty: return pd.DataFrame()
     df_inv = df_inventario.copy()
     hoje = pd.Timestamp(datetime.today().date())
