@@ -107,7 +107,7 @@ c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
 
 with c1:
     if st.button("DASHBOARD", icon=":material/bar_chart:", use_container_width=True):
-        st.switch_page("pages/2_Dashboard_Geral.py")
+        st.switch_page("pages/2_Dashboard.py")
         
 with c2:
     if st.button("HISTÓRICO", icon=":material/manage_search:", use_container_width=True):
@@ -115,7 +115,7 @@ with c2:
         
 with c3:
     if st.button("OS PENDENTES", icon=":material/notifications_active:", use_container_width=True):
-        st.switch_page("pages/3_OS_Pendentes.py")
+        st.switch_page("pages/3_Monitoramento_de_OS.py")
         
 with c4:
     if st.button("CALENDÁRIO", icon=":material/calendar_month:", use_container_width=True):
