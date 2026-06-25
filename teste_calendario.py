@@ -33,7 +33,6 @@ mes_nome_sel = st.sidebar.selectbox("Selecione o Mês", meses_nome, index=mes_at
 mes_sel = meses_nome.index(mes_nome_sel) + 1
 
 # --- 3. PROCESSAMENTO DOS INDICADORES POR DIA ---
-# Vamos descobrir quantas OS foram abertas, fechadas ou estão críticas em cada dia
 dados_por_dia = {}
 
 # Processando Aberturas (de todas as OS disponíveis)
@@ -62,7 +61,7 @@ cols_header = st.columns(7)
 for idx, col in enumerate(cols_header):
     col.markdown(f"<p style='text-align: center; font-weight: bold;'>{dias_semana[idx]}</p>", unsafe_allow_html=True)
 
-# Pega a matriz de semanas do mês (onde 0 significa dia fora do mês)
+# Pega a matriz de semanas do mês
 matriz_mes = calendar.monthcalendar(ano_sel, mes_sel)
 
 for semana in matriz_mes:
@@ -79,10 +78,10 @@ for semana in matriz_mes:
                 # Monta o card visual do dia
                 bg_color = "#ffffff"
                 if info['abertas'] > info['fechadas'] and info['abertas'] > 0:
-                    bg_color = "#fff3cd"  # Alerta amarelo se acumulou mais chamados abertos que fechados
+                    bg_color = "#fff3cd"  # Alerta amarelo se acumulou mais chamados
                 
                 html_card = f"""
-                <div style='min-height: 110px; background-color: {bg_color}; border: 1px solid #dee2e6; border-radius: 5px; padding: 5px; box-shadow: 1px 1px 3px rgba(0,0,0,0.05);'>
+                <div style='min-height: 110px; background-color: {bg_color}; border: 1px solid #dee2e6; border-radius: 5px; padding: 5px; box-shadow: 1px 1px 3px rgba(0,0,0,0.05); margin-bottom: 5px;'>
                     <span style='font-weight: bold; font-size: 14px; color: #495057;'>{dia}</span>
                     <div style='margin-top: 5px; font-size: 11px;'>
                         <span style='color: #dc3545;'>📥 Aberto: {info['abertas']}</span><br>
@@ -92,16 +91,14 @@ for semana in matriz_mes:
                 """
                 st.markdown(html_card, unsafe_allow_html=True)
                 
-                # Botão invisível/pequeno para ver detalhes do dia se necessário
+                # Botão para ver detalhes do dia
                 if info['abertas'] > 0 or info['fechadas'] > 0:
-                if st.button(f"🔍 Detalhes {dia}", key=f"btn_{dia}"):
+                    if st.button(f"🔍 Detalhes {dia}", key=f"btn_{dia}"):
                         st.session_state['dia_selecionado'] = dia
 
 # --- 5. DETALHES DO DIA SELECIONADO ---
 if 'dia_selecionado' in st.session_state:
     dia_sel = st.session_state['dia_selecionado']
     st.divider()
-    st.subheader(f"📋 Ordens de Serviço do Dia {dia_sel}/{mes_sel}/{ano_sel}")
-    
-    # Aqui você pode filtrar o df_pend ou df_enc para mostrar a tabela exata das OS do dia
-    st.info(f"Filtro ativado para exibir detalhes das manutenções do dia {dia_sel}.")
+    st.subheader(f"📋 Resumo do Dia {dia_sel}/{mes_sel}/{ano_sel}")
+    st.info("Aqui entrará a tabela filtrada com as O.S. abertas e fechadas neste dia específico.")
