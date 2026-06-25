@@ -258,7 +258,6 @@ with tab_fila:
                     f_col_t, f_col_b1, f_col_b2 = st.columns([2, 1, 1])
                     f_col_t.markdown(f"#### Ficha de Atendimento - O.S. № {os_alvo}")
                     
-                    # CORREÇÃO DA MÁGICA: Extrai número de série e patrimônio reais da O.S.
                     num_serie_real = dados_linha.get(col_serie, 'N/I')
                     num_pat_real = dados_linha.get('PATRIMÔNIO', dados_linha.get('IDENTIFICADOR', 'N/I'))
                     f_col_t.markdown(f"**Equipamento:** {dados_linha.get(col_tipo, 'N/I')} | **Nº Série:** {num_serie_real} | **Patrimônio:** {num_pat_real}")
@@ -277,7 +276,6 @@ with tab_fila:
                     d2.markdown(f"**📍 Localização:** {dados_linha.get(col_local, 'N/I')}")
                     d3.markdown(f"**⚙️ Status da O.S.:** {dados_linha.get(col_estado, 'N/I')}")
                     
-                    
                     st.markdown("<br><h5 style='color: #32A347;'>Detalhamento</h5>", unsafe_allow_html=True)
                     
                     if not df_atividades.empty:
@@ -286,12 +284,9 @@ with tab_fila:
                         
                         df_historico_os = df_at_temp[df_at_temp['OS_KEY'] == os_busca] if 'OS_KEY' in df_at_temp.columns else pd.DataFrame()
                         
-                       if not df_historico_os.empty:
+                        if not df_historico_os.empty:
                             col_dt_inicio = get_col(df_historico_os, ['DATA INÍCIO', 'DATA INICIO', 'INÍCIO', 'INICIO', 'DATA DA EXECUÇÃO', 'DATA'])
-                            
-                            # 👇 ESSA É A LINHA QUE ESTAVA FALTANDO! 👇
                             col_dt_fim = get_col(df_historico_os, ['DATA TÉRMINO', 'DATA TERMINO', 'TÉRMINO', 'TERMINO', 'FIM'])
-                            
                             col_atividade = get_col(df_historico_os, ['ATIVIDADE', 'ATIVIDADES', 'TIPO ATIVIDADE'])
                             col_servico = get_col(df_historico_os, ['SERVIÇO EXECUTADO', 'SERVICO EXECUTADO', 'SERVIÇO', 'DESCRIÇÃO', 'HISTÓRICO'])
                             col_exec_act = get_col(df_historico_os, ['EXECUTOR', 'TÉCNICO', 'RESPONSÁVEL', 'TECNICO'])
@@ -331,6 +326,7 @@ with tab_fila:
                         st.info("Logs indisponíveis na pasta '03.Atividades'.")
         else:
             st.warning("Ajuste a busca para carregar as fichas técnicas.")
+
 # =====================================================================
 # TAB 3: PRODUTIVIDADE E TMA
 # =====================================================================
