@@ -142,19 +142,70 @@ else:
     df_enc = pd.DataFrame()
 
 # =====================================================================
-# ESTRUTURA DE ABAS (AGORA COM 6 ABAS)
+# ESTRUTURA DE ABAS (AGORA COM 7 ABAS)
 # =====================================================================
-tab_parque, tab_fila, tab_indicadores, tab_produtividade, tab_mapas, tab_financeiro = st.tabs([
+tab_mapa, tab_parque, tab_fila, tab_indicadores, tab_produtividade, tab_conformidade, tab_financeiro = st.tabs([
+    "Mapa do Parque",
     "Ciclo de Vida do Parque", 
     "Acompanhamento de O.S. Pendentes", 
     "Indicadores de Gestão",
     "Produtividade & Entregas",
-    "Mapas e Conformidade",
+    "Matriz de Conformidade",
     "Gestão Financeira & Ativos"
 ])
 
 # =====================================================================
-# TAB 1: CICLO DE VIDA DO PARQUE
+# TAB 1: MAPA DO PARQUE TECNOLÓGICO (VISÃO EXECUTIVA)
+# =====================================================================
+with tab_mapa:
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Mapa do Parque Tecnológico</h3>", unsafe_allow_html=True)
+    st.markdown("**Monitoramento de Disponibilidade e Concentração de Falhas por Setor | HU-UNIVASF**")
+
+    # Cálculos da Visão Geral
+    tot_ativos_mapa = len(df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']) if not df_inv.empty else 0
+    tot_parados_mapa = 0
+    
+    if not df_pend.empty:
+        col_parado_mapa = get_col(df_pend, ['EQUIPAMENTO PARADO', 'PARADO'])
+        if col_parado_mapa:
+            tot_parados_mapa = len(df_pend[df_pend[col_parado_mapa].astype(str).str.upper().str.strip() == 'SIM'])
+            
+    taxa_disp = ((tot_ativos_mapa - tot_parados_mapa) / tot_ativos_mapa * 100) if tot_ativos_mapa > 0 else 0
+    
+    map_c1, map_c2, map_c3 = st.columns(3)
+    map_c1.metric("Total de Ativos (Inventário)", f"{tot_ativos_mapa:,}".replace(",", "."))
+    map_c2.metric("Equipamentos Parados (Corretiva)", f"{tot_parados_mapa}", "Ação Imediata", delta_color="inverse")
+    map_c3.metric("Taxa de Disponibilidade Global", f"{taxa_disp:.1f}%", "Meta: 95.0%", delta_color="normal" if taxa_disp >= 95 else "inverse")
+
+    st.markdown("<br><h4 style='color: #154899;'>Concentração de O.S. por Localização Física</h4>", unsafe_allow_html=True)
+    
+    if not df_pend.empty:
+        col_local_mapa = get_col(df_pend, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO', 'LOCALIZACAO_INVENTARIO'])
+        if col_local_mapa:
+            df_tree = df_pend.groupby(col_local_mapa).size().reset_index(name='FALHAS')
+            df_tree = df_tree[df_tree['FALHAS'] > 0]
+            
+            if not df_tree.empty:
+                fig_tree = px.treemap(
+                    df_tree, 
+                    path=[px.Constant("HU-UNIVASF"), col_local_mapa], 
+                    values='FALHAS', 
+                    color='FALHAS', 
+                    color_continuous_scale='Reds',
+                    title="Mapeamento de Áreas Críticas (Volume de Falhas Abertas)"
+                )
+                fig_tree.update_traces(root_color="lightgrey")
+                fig_tree.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=550)
+                st.plotly_chart(fig_tree, use_container_width=True)
+            else:
+                st.success("Não há falhas pendentes vinculadas a locais físicos.")
+        else:
+            st.info("Coluna de Localização não identificada na Fila de O.S.")
+    else:
+        st.success("A fila de O.S. está vazia. O parque está 100% operacional!")
+
+# =====================================================================
+# TAB 2: CICLO DE VIDA DO PARQUE
 # =====================================================================
 with tab_parque:
     if not df_inv.empty:
@@ -193,7 +244,7 @@ with tab_parque:
             st.plotly_chart(fig_pie_mp, use_container_width=True)
 
 # =====================================================================
-# TAB 2: CENTRAL OPERACIONAL DE O.S. PENDENTES
+# TAB 3: CENTRAL OPERACIONAL DE O.S. PENDENTES
 # =====================================================================
 with tab_fila:
     if not df_pend.empty:
@@ -323,7 +374,7 @@ with tab_fila:
             st.warning("Ajuste a busca para carregar as fichas técnicas.")
 
 # =====================================================================
-# TAB 3: INDICADORES (FOTOGRAFIA DO MOMENTO)
+# TAB 4: INDICADORES (FOTOGRAFIA DO MOMENTO)
 # =====================================================================
 with tab_indicadores:
     tma_g_12 = 0; tma_mc_12 = 0; tma_mp_12 = 0
@@ -398,7 +449,7 @@ with tab_indicadores:
                     st.plotly_chart(fig_tp, use_container_width=True)
 
 # =====================================================================
-# TAB 4: PRODUTIVIDADE & ENTREGAS (FLUXO HISTÓRICO)
+# TAB 5: PRODUTIVIDADE & ENTREGAS (FLUXO HISTÓRICO)
 # =====================================================================
 with tab_produtividade:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Análise de Produtividade e Entregas Mensais</h3>", unsafe_allow_html=True)
@@ -508,9 +559,9 @@ with tab_produtividade:
         st.warning("Não há histórico de O.S. Encerradas para calcular a produtividade.")
 
 # =====================================================================
-# TAB 5: MAPAS E CONFORMIDADE (MATRIZ DE CALOR & DRILL-DOWN)
+# TAB 6: MAPAS E CONFORMIDADE (MATRIZ DE CALOR & DRILL-DOWN)
 # =====================================================================
-with tab_mapas:
+with tab_conformidade:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Matriz de Conformidade de Manutenção Programada</h3>", unsafe_allow_html=True)
     
     if not df_inv.empty:
@@ -522,15 +573,12 @@ with tab_mapas:
         col_status = f'Status {programa_selecionado}'
         
         if col_status in df_ativos.columns:
-            # 1. Cria a Matriz Pivô (Tipo x Status)
             df_pivot = pd.crosstab(df_ativos['DESCRIÇÃO'], df_ativos[col_status])
             
-            # Ordena e seleciona apenas as colunas que importam
             colunas_ordenadas = ['NR', '+ 2a', '+ 1a', 'em 45d', 'em 3m', 'OK', 'Garantia/Novo']
             colunas_presentes = [c for c in colunas_ordenadas if c in df_pivot.columns]
             df_pivot = df_pivot[colunas_presentes]
             
-            # 2. Estilização CSS Condicional do Pandas
             def style_matrix(df):
                 styles = pd.DataFrame('', index=df.index, columns=df.columns)
                 for col in df.columns:
@@ -543,10 +591,8 @@ with tab_mapas:
                     elif col == 'Garantia/Novo': styles[col] = np.where(df[col] > 0, 'background-color: #8fa1b3; color: white; font-weight: bold;', '')
                 return styles
 
-            # Renderiza a Matriz com st.dataframe nativo do Streamlit suportando pandas Styler
             st.dataframe(df_pivot.style.apply(style_matrix, axis=None).format(na_rep=""), use_container_width=True, height=400)
             
-            # 3. Ferramenta de Estratificação (Drill-down)
             st.markdown("---")
             st.markdown("<h4 style='color: #32A347;'>🔍 Lupa de Estratificação (Drill-down)</h4>", unsafe_allow_html=True)
             st.write("Identificou um atraso na matriz acima? Selecione o equipamento e o status abaixo para puxar a lista de números de série e acionar a equipe.")
@@ -563,7 +609,6 @@ with tab_mapas:
             colunas_exibicao_limpas = [c for c in colunas_exibicao if c in df_drill.columns]
             
             if not df_drill.empty:
-                # Formata a data para ficar legível
                 if programa_selecionado in df_drill.columns:
                     df_drill[programa_selecionado] = pd.to_datetime(df_drill[programa_selecionado], errors='coerce').dt.strftime('%d/%m/%Y')
                 
@@ -577,7 +622,7 @@ with tab_mapas:
         st.warning("Inventário não carregado. Verifique os dados.")
 
 # =====================================================================
-# TAB 6: GESTÃO FINANCEIRA & ATIVOS
+# TAB 7: GESTÃO FINANCEIRA & ATIVOS
 # =====================================================================
 with tab_financeiro:
     if not df_inv.empty:
