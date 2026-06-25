@@ -2,8 +2,13 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
-import glob
-from datetime import datetime
+# Importando o cérebro que criamos!
+from motor_dados import (
+    carregar_mais_recente, 
+    carregar_os_encerradas, 
+    limpar_dimensao_equipamentos, 
+    enriquecer_base_inventario
+)
 
 # =====================================================================
 # 1. CONFIGURAÇÃO DA PÁGINA
@@ -75,59 +80,96 @@ with col_logo2:
 st.markdown("---")
 
 # =====================================================================
-# 4. MOTOR DE LEITURA E CÁLCULOS
+# 4. MOTOR DE LEITURA E CÁLCULOS (MODULO 1)
 # =====================================================================
+# Usamos o cache do Streamlit para não processar a base toda vez que você clicar em algo
 @st.cache_data(ttl=600)
-def carregar_dados(pasta_nome):
-    caminho = os.path.join(os.getcwd(), "planilhas_gets", pasta_nome)
-    arquivos = glob.glob(os.path.join(caminho, "*.xlsx"))
-    if not arquivos: return pd.DataFrame()
-    try:
-        df = pd.read_excel(max(arquivos, key=os.path.getmtime), skiprows=5)
-        df.columns = df.columns.str.strip().str.upper()
-        return df
-    except: return pd.DataFrame()
+def processar_dados_painel():
+    # 1. Busca os arquivos brutos usando o motor
+    df_inv_bruto = carregar_mais_recente("04.Inventário")
+    df_pend = carregar_mais_recente("02.OS_Pendentes")
+    df_enc = carregar_os_encerradas()
+    
+    # 2. Limpa e processa o Inventário com as MPs
+    df_inv_limpo = limpar_dimensao_equipamentos(df_inv_bruto)
+    df_inv = enriquecer_base_inventario(df_inv_limpo, df_enc)
+    
+    return df_inv, df_pend, df_enc
 
-with st.spinner("Atualizando painel com os dados mais recentes..."):
-    df_inv = carregar_dados("04.Inventário")
-    df_pend = carregar_dados("02.OS_Pendentes")
-    df_enc = carregar_dados("01.OS_Encerradas")
+with st.spinner("Processando Inteligência do Parque Tecnológico..."):
+    df_inv, df_pend, df_enc = processar_dados_painel()
 
-total_equipamentos = len(df_inv) if not df_inv.empty else 0
-os_abertas = len(df_pend) if not df_pend.empty else 0
-os_encerradas_mes = len(df_enc) if not df_enc.empty else 0
+# --- Cálculos do DAX Traduzidos ---
+total_equipamentos = 0
+pct_critico_idade = 0.0
+qtd_critico_idade = 0
+pct_mp_ok = 0.0
+qtd_mp_ok = 0
+qtd_atraso_critico = 0
+qtd_mp_nr = 0
 
-corretivas_abertas = 0
-if not df_pend.empty and 'TIPO DE MANUTENÇÃO' in df_pend.columns:
-    corretivas_abertas = len(df_pend[df_pend['TIPO DE MANUTENÇÃO'].str.contains('CORRETIVA', na=False, case=False)])
-else:
-    corretivas_abertas = os_abertas 
+if not df_inv.empty:
+    # A base do nosso filtro é a contagem de equipamentos ATIVOS
+    df_ativos = df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']
+    total_equipamentos = len(df_ativos)
 
-disponibilidade = ((total_equipamentos - corretivas_abertas) / total_equipamentos * 100) if total_equipamentos > 0 else 100
+    if total_equipamentos > 0:
+        # Equipamentos > 10 Anos
+        qtd_critico_idade = len(df_ativos[df_ativos['Idade Equipamento Num'] > 10])
+        pct_critico_idade = (qtd_critico_idade / total_equipamentos) * 100
+        
+        # Conformidade de MP (Ordem 6 = OK, Ordem 1 = NR, Ordem 2 e 3 = Vencidos > 1 ano)
+        qtd_mp_ok = len(df_ativos[df_ativos['Ordem Status MP'] == 6])
+        pct_mp_ok = (qtd_mp_ok / total_equipamentos) * 100
+        
+        qtd_mp_nr = len(df_ativos[df_ativos['Ordem Status MP'] == 1])
+        qtd_mp_vencida_1a = len(df_ativos[df_ativos['Ordem Status MP'] == 3])
+        qtd_mp_vencida_2a = len(df_ativos[df_ativos['Ordem Status MP'] == 2])
+        qtd_atraso_critico = qtd_mp_vencida_1a + qtd_mp_vencida_2a
 
 # =====================================================================
-# 5. CARDS DE INDICADORES
+# 5. CARDS DE INDICADORES (SAÚDE DO PARQUE)
 # =====================================================================
+st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>health_and_safety</span> Saúde do Parque Tecnológico</h3>", unsafe_allow_html=True)
+
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric(label="Total de Equipamentos", value=f"{total_equipamentos:,}".replace(",", "."))
+    st.metric(
+        label="Parque Ativo", 
+        value=f"{total_equipamentos:,}".replace(",", ".")
+    )
 with col2:
-    st.metric(label="Disponibilidade do Parque", value=f"{disponibilidade:.1f}%", delta="Meta: 95%", delta_color="normal" if disponibilidade >= 95 else "inverse")
+    st.metric(
+        label="Críticos (> 10 anos)", 
+        value=f"{pct_critico_idade:.1f}%", 
+        delta=f"{qtd_critico_idade} ativos antigos", 
+        delta_color="inverse"
+    )
 with col3:
-    st.metric(label="O.S. Abertas (Fila)", value=os_abertas, delta=f"{corretivas_abertas} Corretivas", delta_color="inverse")
+    st.metric(
+        label="Conformidade de MP (OK)", 
+        value=f"{pct_mp_ok:.1f}%",
+        delta="Meta: 100%",
+        delta_color="normal" if pct_mp_ok == 100 else "inverse"
+    )
 with col4:
-    st.metric(label="O.S. Encerradas (Mês)", value=os_encerradas_mes, delta="Produtividade", delta_color="normal")
+    st.metric(
+        label="Alerta: MP Atrasada (> 1 ano)", 
+        value=qtd_atraso_critico,
+        delta=f"{qtd_mp_nr} Nunca Realizadas",
+        delta_color="inverse"
+    )
 
-st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
 # =====================================================================
-# 6. GRÁFICOS (PLOTLY)
+# 6. GRÁFICOS (FILA DE O.S.)
 # =====================================================================
 col_graf1, col_graf2 = st.columns(2)
 
 with col_graf1:
-    st.markdown("<h4 style='display:flex; align-items:center; gap:8px; color: #154899;'><span class='material-symbols-rounded'>account_tree</span> Top 10 Setores (Gargalos)</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='display:flex; align-items:center; gap:8px; color: #154899;'><span class='material-symbols-rounded'>account_tree</span> Top 10 Setores (Gargalos na Fila)</h4>", unsafe_allow_html=True)
     if not df_pend.empty:
         col_local = 'LOCALIZAÇÃO FÍSICA' if 'LOCALIZAÇÃO FÍSICA' in df_pend.columns else ('LOCALIZAÇÃO' if 'LOCALIZAÇÃO' in df_pend.columns else None)
         if col_local:
@@ -142,7 +184,7 @@ with col_graf1:
         st.success("Nenhuma OS pendente no momento!")
 
 with col_graf2:
-    st.markdown("<h4 style='display:flex; align-items:center; gap:8px; color: #154899;'><span class='material-symbols-rounded'>donut_large</span> Distribuição por Status</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='display:flex; align-items:center; gap:8px; color: #154899;'><span class='material-symbols-rounded'>donut_large</span> Distribuição de Status (Fila)</h4>", unsafe_allow_html=True)
     if not df_pend.empty and 'ESTADO' in df_pend.columns:
         df_status = df_pend['ESTADO'].value_counts().reset_index()
         df_status.columns = ['Status', 'Quantidade']
