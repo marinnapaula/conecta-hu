@@ -5,14 +5,24 @@ import plotly.express as px
 
 st.set_page_config(page_title="Laboratório de Histórico", layout="wide")
 
-st.title("🧪 Laboratório de Testes: Histórico Retroativo")
-st.write("Esta página é isolada para testar a leitura dos CSVs de histórico.")
+st.title("🧪 Laboratório de Testes: Histórico")
 
-if st.button("🚀 Processar Dados do Histórico"):
-    with st.spinner("Lendo arquivos..."):
-        df, mensagem = obter_dados_historico()
+if st.button("🚀 Processar Dados"):
+    df, status = obter_dados_historico()
+    
+    if not df.empty:
+        # Debug: mostra as colunas que o Python está enxergando
+        st.write("Colunas encontradas:", df.columns.tolist())
         
-    st.info(f"Status do Motor: {mensagem}")
+        # Agora o metric vai funcionar porque fixamos os nomes no engine
+        col1, col2 = st.columns(2)
+        col1.metric("Média Geral de Dias", f"{df['Media_Dias'].mean():.1f}")
+        col2.metric("Volume Total", f"{df['Volume_Fila'].sum()}")
+        
+        # Gráfico
+        st.line_chart(df.set_index('DT_SNAP')[['Volume_Fila', 'Media_Dias']])
+    else:
+        st.error("O DataFrame está vazio ou as colunas esperadas não foram criadas.")
     
     if not df.empty:
         # Métricas rápidas
