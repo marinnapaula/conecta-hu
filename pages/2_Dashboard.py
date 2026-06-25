@@ -72,7 +72,7 @@ def obter_dados_processados():
     df_inv_bruto = carregar_mais_recente("04.Inventário")
     df_pend_bruto = carregar_mais_recente("02.OS_Pendentes")
     df_enc_bruto = carregar_os_encerradas()
-    df_atividades_bruto = carregar_todas_atividades("03.Atividades") # <-- RETORNOU PRA CAIXA CERTA!
+    df_atividades_bruto = carregar_todas_atividades("03.Atividades")
     df_curva_fila = gerar_curva_backlog()
         
     df_inv_limpo = limpar_dimensao_equipamentos(df_inv_bruto)
@@ -141,12 +141,15 @@ if not df_enc_bruto.empty:
 else:
     df_enc = pd.DataFrame()
 
-# Definição das Abas Estreitadas
-tab_parque, tab_fila, tab_indicadores, tab_produtividade, tab_financeiro = st.tabs([
+# =====================================================================
+# ESTRUTURA DE ABAS (AGORA COM 6 ABAS)
+# =====================================================================
+tab_parque, tab_fila, tab_indicadores, tab_produtividade, tab_mapas, tab_financeiro = st.tabs([
     "Ciclo de Vida do Parque", 
     "Acompanhamento de O.S. Pendentes", 
     "Indicadores de Gestão",
     "Produtividade & Entregas",
+    "Mapas e Conformidade",
     "Gestão Financeira & Ativos"
 ])
 
@@ -505,7 +508,76 @@ with tab_produtividade:
         st.warning("Não há histórico de O.S. Encerradas para calcular a produtividade.")
 
 # =====================================================================
-# TAB 5: GESTÃO FINANCEIRA & ATIVOS
+# TAB 5: MAPAS E CONFORMIDADE (MATRIZ DE CALOR & DRILL-DOWN)
+# =====================================================================
+with tab_mapas:
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Matriz de Conformidade de Manutenção Programada</h3>", unsafe_allow_html=True)
+    
+    if not df_inv.empty:
+        df_ativos = df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO'].copy()
+        
+        col_selecao, _ = st.columns([1, 3])
+        programa_selecionado = col_selecao.selectbox("Selecione o Programa de Manutenção:", ["PREVENTIVA", "CALIBRAÇÃO"])
+        
+        col_status = f'Status {programa_selecionado}'
+        
+        if col_status in df_ativos.columns:
+            # 1. Cria a Matriz Pivô (Tipo x Status)
+            df_pivot = pd.crosstab(df_ativos['DESCRIÇÃO'], df_ativos[col_status])
+            
+            # Ordena e seleciona apenas as colunas que importam
+            colunas_ordenadas = ['NR', '+ 2a', '+ 1a', 'em 45d', 'em 3m', 'OK', 'Garantia/Novo']
+            colunas_presentes = [c for c in colunas_ordenadas if c in df_pivot.columns]
+            df_pivot = df_pivot[colunas_presentes]
+            
+            # 2. Estilização CSS Condicional do Pandas
+            def style_matrix(df):
+                styles = pd.DataFrame('', index=df.index, columns=df.columns)
+                for col in df.columns:
+                    if col == 'NR': styles[col] = np.where(df[col] > 0, 'background-color: #595959; color: white; font-weight: bold;', '')
+                    elif col == '+ 2a': styles[col] = np.where(df[col] > 0, 'background-color: #C00000; color: white; font-weight: bold;', '')
+                    elif col == '+ 1a': styles[col] = np.where(df[col] > 0, 'background-color: #ED7D31; color: white; font-weight: bold;', '')
+                    elif col == 'em 45d': styles[col] = np.where(df[col] > 0, 'background-color: #FFC000; color: black; font-weight: bold;', '')
+                    elif col == 'em 3m': styles[col] = np.where(df[col] > 0, 'background-color: #5B9BD5; color: white; font-weight: bold;', '')
+                    elif col == 'OK': styles[col] = np.where(df[col] > 0, 'background-color: #70AD47; color: white; font-weight: bold;', '')
+                    elif col == 'Garantia/Novo': styles[col] = np.where(df[col] > 0, 'background-color: #8fa1b3; color: white; font-weight: bold;', '')
+                return styles
+
+            # Renderiza a Matriz com st.dataframe nativo do Streamlit suportando pandas Styler
+            st.dataframe(df_pivot.style.apply(style_matrix, axis=None).format(na_rep=""), use_container_width=True, height=400)
+            
+            # 3. Ferramenta de Estratificação (Drill-down)
+            st.markdown("---")
+            st.markdown("<h4 style='color: #32A347;'>🔍 Lupa de Estratificação (Drill-down)</h4>", unsafe_allow_html=True)
+            st.write("Identificou um atraso na matriz acima? Selecione o equipamento e o status abaixo para puxar a lista de números de série e acionar a equipe.")
+            
+            c_drill1, c_drill2 = st.columns(2)
+            equip_drill = c_drill1.selectbox("Filtrar Equipamento:", ["Todos"] + list(df_pivot.index))
+            status_drill = c_drill2.selectbox("Filtrar Status:", ["Todos"] + colunas_presentes)
+            
+            df_drill = df_ativos.copy()
+            if equip_drill != "Todos": df_drill = df_drill[df_drill['DESCRIÇÃO'] == equip_drill]
+            if status_drill != "Todos": df_drill = df_drill[df_drill[col_status] == status_drill]
+            
+            colunas_exibicao = ['DESCRIÇÃO', 'PATRIMÔNIO', 'N.º SÉRIE', 'LOCALIZAÇÃO FÍSICA', programa_selecionado]
+            colunas_exibicao_limpas = [c for c in colunas_exibicao if c in df_drill.columns]
+            
+            if not df_drill.empty:
+                # Formata a data para ficar legível
+                if programa_selecionado in df_drill.columns:
+                    df_drill[programa_selecionado] = pd.to_datetime(df_drill[programa_selecionado], errors='coerce').dt.strftime('%d/%m/%Y')
+                
+                st.markdown(f"**Total de Equipamentos Encontrados:** {len(df_drill)}")
+                st.dataframe(df_drill[colunas_exibicao_limpas], use_container_width=True, hide_index=True)
+            else:
+                st.success("Nenhum equipamento encontrado com essa combinação de filtros. Tudo limpo!")
+        else:
+            st.info("A coluna de status deste programa ainda não foi processada.")
+    else:
+        st.warning("Inventário não carregado. Verifique os dados.")
+
+# =====================================================================
+# TAB 6: GESTÃO FINANCEIRA & ATIVOS
 # =====================================================================
 with tab_financeiro:
     if not df_inv.empty:
