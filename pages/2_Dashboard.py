@@ -97,8 +97,8 @@ st.sidebar.markdown("---")
 locais_disponiveis = sorted(df_inv['LOCALIZAÇÃO FÍSICA'].dropna().unique()) if not df_inv.empty and 'LOCALIZAÇÃO FÍSICA' in df_inv.columns else []
 tipos_disponiveis = sorted(df_inv['DESCRIÇÃO'].dropna().unique()) if not df_inv.empty and 'DESCRIÇÃO' in df_inv.columns else []
 
-filtro_local = st.sidebar.multiselect("📍 Setor Geral", locais_disponiveis, placeholder="Todos os setores")
-filtro_tipo = st.sidebar.multiselect("📟 Classe de Ativo", tipos_disponiveis, placeholder="Todos os tipos")
+filtro_local = st.sidebar.multiselect("Localização", locais_disponiveis, placeholder="Todos os setores")
+filtro_tipo = st.sidebar.multiselect("Tipo de Equipamento", tipos_disponiveis, placeholder="Todos os tipos")
 
 if filtro_local and not df_inv.empty: df_inv = df_inv[df_inv['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
 if filtro_tipo and not df_inv.empty: df_inv = df_inv[df_inv['DESCRIÇÃO'].isin(filtro_tipo)]
@@ -123,10 +123,10 @@ else:
 
 # Definição das Abas Estreitadas
 tab_parque, tab_fila, tab_produtividade, tab_financeiro = st.tabs([
-    "🏥 Ciclo de Vida do Parque", 
-    "📥 Acompanhamento de O.S. Pendentes", 
-    "📊 Produtividade & TMA",
-    "💰 Gestão Financeira & Ativos"
+    "Ciclo de Vida do Parque", 
+    "Acompanhamento de O.S. Pendentes", 
+    "Produtividade & TMA",
+    "Gestão Financeira & Ativos"
 ])
 
 # =====================================================================
@@ -204,23 +204,23 @@ with tab_fila:
         tma_f = df_p['DIAS_EM_ABERTO'].mean() if total_f > 0 else 0
 
         f_c1, f_c2, f_c3, f_c4 = st.columns(4)
-        f_c1.metric("O.S. em Fila de Espera", total_f)
-        f_c2.metric("Ativos Totalmente Parados", parados_f, "Gargalo Assistencial", delta_color="inverse" if parados_f > 0 else "normal")
-        f_c3.metric("Equipamentos Críticos na Fila", criticos_f, "Prioridade de Despacho", delta_color="inverse" if criticos_f > 0 else "normal")
-        f_c4.metric("Tempo Médio de Fila Atual", f"{tma_f:.1f} Dias")
+        f_c1.metric("O.S. Pendentes", total_f)
+        f_c2.metric("Equipamentos Parados", parados_f, "Gargalo Assistencial", delta_color="inverse" if parados_f > 0 else "normal")
+        f_c3.metric("Equipamentos Críticos", criticos_f, "Prioridade de Despacho", delta_color="inverse" if criticos_f > 0 else "normal")
+        f_c4.metric("Tempo Médio de Fila", f"{tma_f:.1f} Dias")
 
-        st.markdown("<br><h3 style='color: #154899;'>🎛️ Painel de Filtros Operacionais</h3>", unsafe_allow_html=True)
+        st.markdown("<br><h3 style='color: #154899;'> Acompanhamento de O.S Pendentes </h3>", unsafe_allow_html=True)
 
         with st.container(border=True):
             r1, r2, r3, r4 = st.columns(4)
             f_num_os = r1.text_input("Número da O.S.", placeholder="Digite o número...")
             f_num_serie = r2.text_input("Número de Série", placeholder="Digite o S/N...")
-            f_faixa_dias = r3.multiselect("Faixa de Dias (Atraso)", sorted(df_p['FAIXA_DIAS'].unique()))
-            f_local_fisico = r4.multiselect("Localização Física (Setor)", sorted(df_p[col_local].dropna().unique()) if col_local else [])
+            f_faixa_dias = r3.multiselect("Faixa de Dias", sorted(df_p['FAIXA_DIAS'].unique()))
+            f_local_fisico = r4.multiselect("Localização Física", sorted(df_p[col_local].dropna().unique()) if col_local else [])
             
             r5, r6, r7, r8 = st.columns(4)
             f_tipo_equip = r5.multiselect("Tipo de Equipamento", sorted(df_p[col_tipo].dropna().unique()) if col_tipo else [])
-            f_estado_os = r6.multiselect("Estado (Status do Chamado)", sorted(df_p[col_estado].dropna().unique()) if col_estado else [])
+            f_estado_os = r6.multiselect("Status da O.S.", sorted(df_p[col_estado].dropna().unique()) if col_estado else [])
             f_eq_parado = r7.selectbox("Equipamento Parado?", ["Todos", "SIM", "NÃO"])
             f_eq_critico = r8.selectbox("Equipamento Crítico?", ["Todos", "SIM", "NÃO"])
 
@@ -247,7 +247,7 @@ with tab_fila:
         )
 
         st.markdown("---")
-        st.markdown("<h3 style='color: #154899;'>🗂️ Central de Investigação da O.S. (Drill-Down)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #154899;'>Detalhamento da O.S</h3>", unsafe_allow_html=True)
         
         if not df_f.empty and col_os:
             os_alvo = st.selectbox("Escolha uma Ordem de Serviço da lista para abrir a ficha completa:", options=df_f[col_os].astype(str).unique())
@@ -265,8 +265,8 @@ with tab_fila:
                     
                     p_status = "🔴 PARADO" if str(dados_linha.get(col_parado, '')).upper() == 'SIM' else "🟢 EM OPERAÇÃO"
                     c_status = "⚠️ ALTA CRITICIDADE" if str(dados_linha.get(col_critico, '')).upper() == 'SIM' else "ℹ️ CRITICIDADE NORMAL"
-                    f_col_b1.markdown(f"**Estado Físico:**<br>`{p_status}`", unsafe_allow_html=True)
-                    f_col_b2.markdown(f"**Severidade:**<br>`{c_status}`", unsafe_allow_html=True)
+                    f_col_b1.markdown(f"**Disponibilidade:**<br>`{p_status}`", unsafe_allow_html=True)
+                    f_col_b2.markdown(f"**Criticidade:**<br>`{c_status}`", unsafe_allow_html=True)
                     st.divider()
                     
                     d1, d2, d3 = st.columns(3)
@@ -274,12 +274,11 @@ with tab_fila:
                     
                     d1.markdown(f"**📅 Abertura:** {dt_ab_str}")
                     d1.markdown(f"**⏳ Dias na Fila:** {dados_linha.get('DIAS_EM_ABERTO', 0)} dias")
-                    d2.markdown(f"**📍 Setor Atual:** {dados_linha.get(col_local, 'N/I')}")
-                    d2.markdown(f"**🔢 Série:** {dados_linha.get(col_serie, 'N/I')}")
-                    d3.markdown(f"**⚙️ Estado GETS:** {dados_linha.get(col_estado, 'N/I')}")
-                    d3.markdown(f"**👷 Responsável:** {dados_linha.get(col_executor, 'Não Alocado')}")
+                    d2.markdown(f"**📍 Localização:** {dados_linha.get(col_local, 'N/I')}")
+                    d3.markdown(f"**⚙️ Status da O.S.:** {dados_linha.get(col_estado, 'N/I')}")
                     
-                    st.markdown("<br><h5 style='color: #32A347;'>🛠️ Linha do Tempo e Detalhamento Técnico (Atividades)</h5>", unsafe_allow_html=True)
+                    
+                    st.markdown("<br><h5 style='color: #32A347;'>Detalhamento</h5>", unsafe_allow_html=True)
                     
                     if not df_atividades.empty:
                         df_at_temp = df_atividades.copy()
@@ -289,7 +288,6 @@ with tab_fila:
                         
                         if not df_historico_os.empty:
                             col_dt_inicio = get_col(df_historico_os, ['DATA INÍCIO', 'DATA INICIO', 'INÍCIO', 'INICIO', 'DATA DA EXECUÇÃO', 'DATA'])
-                            col_dt_fim = get_col(df_historico_os, ['DATA TÉRMINO', 'DATA TERMINO', 'TÉRMINO', 'TERMINO', 'FIM'])
                             col_atividade = get_col(df_historico_os, ['ATIVIDADE', 'ATIVIDADES', 'TIPO ATIVIDADE'])
                             col_servico = get_col(df_historico_os, ['SERVIÇO EXECUTADO', 'SERVICO EXECUTADO', 'SERVIÇO', 'DESCRIÇÃO', 'HISTÓRICO'])
                             col_exec_act = get_col(df_historico_os, ['EXECUTOR', 'TÉCNICO', 'RESPONSÁVEL', 'TECNICO'])
@@ -316,7 +314,7 @@ with tab_fila:
                             st.dataframe(df_print_act, use_container_width=True, hide_index=True, column_config=config_colunas)
                             
                             # VISUALIZAÇÃO COMPLEMENTAR EM CARD (Para relatórios extensos)
-                            with st.expander("🔍 Ver textos de Serviços Executados completos linha por linha"):
+                            with st.expander("Ver textos de Serviços Executados completos"):
                                 for _, lista_row in df_print_act.iterrows():
                                     t_ini = lista_row.get(col_dt_inicio, 'N/I')
                                     t_exec = lista_row.get(col_exec_act, 'N/I')
