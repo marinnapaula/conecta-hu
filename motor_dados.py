@@ -8,11 +8,13 @@ from datetime import datetime
 # 1. FUNÇÃO AUXILIAR SUPREMA (LEITURA BLINDADA GETS)
 # =====================================================================
 def get_arquivos(pasta_alvo):
+    """Pega todos os formatos possíveis de planilhas na pasta."""
     return glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + \
            glob.glob(os.path.join(pasta_alvo, "*.xls")) + \
            glob.glob(os.path.join(pasta_alvo, "*.csv"))
 
 def ler_arquivo_gets(caminho_arq, colunas_alvo):
+    """Lê o arquivo testando várias linhas de cabeçalho, suportando .xls falso (HTML) e CSVs brasileiros."""
     for skip in [5, 4, 3, 0, 1, 2, 6, 7, 8]:
         try:
             df = pd.DataFrame()
@@ -20,6 +22,7 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
             
             if extensao.endswith('.xlsx'):
                 df = pd.read_excel(caminho_arq, skiprows=skip)
+                
             elif extensao.endswith('.xls'):
                 try:
                     df = pd.read_excel(caminho_arq, skiprows=skip)
@@ -27,7 +30,8 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
                     try:
                         dfs = pd.read_html(caminho_arq, skiprows=skip, decimal=',', thousands='.')
                         if dfs: df = dfs[0]
-                    except: pass
+                    except:
+                        pass
             else:
                 try:
                     df = pd.read_csv(caminho_arq, skiprows=skip, sep=';', encoding='latin1', low_memory=False)
@@ -37,8 +41,11 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
 
             if not df.empty:
                 df.columns = df.columns.astype(str).str.strip().str.upper()
-                if any(c in df.columns for c in colunas_alvo): return df
-        except: continue
+                if any(c in df.columns for c in colunas_alvo):
+                    return df
+        except:
+            continue
+            
     return pd.DataFrame()
 
 # =====================================================================
@@ -141,9 +148,16 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
     return df_final
 
 def gerar_curva_backlog():
-    """MÁQUINA DO TEMPO: Analisa historicamente a fila pendente e extrai métricas detalhadas (Faixa de dias, Críticas, Tempo Médio)."""
-    pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
-    arquivos = get_arquivos(pasta_alvo)
+    """MÁQUINA DO TEMPO: Busca Fila Pendente atual E TODAS AS PASTAS HISTÓRICAS de Fila Pendente."""
+    pastas_busca = ["02.OS_Pendentes", "OS Pendentes Historico", "02.OS_Pendentes_Historico", "OS_Pendentes_Historico", "OS Pendentes Histórico"]
+    
+    arquivos = []
+    for p in pastas_busca:
+        pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", p)
+        arquivos.extend(get_arquivos(pasta_alvo))
+        
+    arquivos = list(set(arquivos)) # Remove arquivos duplicados
+    
     if not arquivos: return pd.DataFrame()
     
     lista_historico = []
@@ -166,9 +180,14 @@ def gerar_curva_backlog():
                 f_0_5 = f_6_15 = f_16_30 = f_31_60 = f_60_mais = 0
                 
                 if 'ABERTURA' in df_valid.columns:
-                    datas_ab = pd.to_datetime(df_valid['ABERTURA'], errors='coerce', dayfirst=True)
+                    # Garantir que a Abertura é uma data válida
+                    datas_texto = pd.to_datetime(df_valid['ABERTURA'], errors='coerce', dayfirst=True)
+                    numeros = pd.to_numeric(df_valid['ABERTURA'], errors='coerce')
+                    datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
+                    datas_ab = datas_texto.fillna(datas_excel)
+                    
                     dias_aberto = (dt_snap - datas_ab).dt.days
-                    dias_aberto = dias_aberto[dias_aberto >= 0] # Remove anomalias temporais
+                    dias_aberto = dias_aberto[dias_aberto >= 0] # Filtra sujeiras (datas negativas)
                     
                     if not dias_aberto.empty:
                         tm_aberta = dias_aberto.mean()
@@ -186,7 +205,8 @@ def gerar_curva_backlog():
             
     if not lista_historico: return pd.DataFrame()
     df_hist = pd.DataFrame(lista_historico)
-    # Agrupa por data pegando a média se houver 2 relatórios no mesmo dia
+    
+    # Se você extraiu dois relatórios no mesmo dia, ele calcula a média daquele dia
     df_hist = df_hist.groupby('Data').mean().reset_index().sort_values(by='Data')
     return df_hist
 
