@@ -27,30 +27,42 @@ def carregar_mais_recente(nome_pasta):
         return pd.DataFrame()
 
 def carregar_os_encerradas():
-    """Lê TODA a pasta de OS Encerradas com LEITURA BLINDADA para arquivos antigos."""
+    """Lê TODA a pasta de OS Encerradas com UNIFICAÇÃO DE COLUNAS e DATAS BLINDADAS."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "01.OS_Encerradas")
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
     if not arquivos: return pd.DataFrame()
 
     lista_dfs = []
-    colunas_os_possiveis = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
+    # Dicionário de tradução universal: Padroniza relatórios velhos e novos
+    mapa_colunas = {
+        'N.º O.S.': 'O.S.', 'Nº O.S.': 'O.S.', 'N. O.S.': 'O.S.', 'OS': 'O.S.', 'ORDEM DE SERVIÇO': 'O.S.',
+        'DATA ABERTURA': 'ABERTURA', 'DATA DE ABERTURA': 'ABERTURA', 'CRIADO EM': 'ABERTURA',
+        'DATA ENCERRAMENTO': 'ENCERRAMENTO', 'DATA DE ENCERRAMENTO': 'ENCERRAMENTO', 'FECHAMENTO': 'ENCERRAMENTO', 'DATA CONCLUSÃO': 'ENCERRAMENTO',
+        'TIPO MANUTENÇÃO': 'CLASSE', 'TIPO DA O.S.': 'CLASSE',
+        'PROGRAMA': 'PROGRAMA MP', 'TIPO DE PREVENTIVA': 'PROGRAMA MP',
+        'LOCALIZAÇÃO': 'LOCALIZAÇÃO FÍSICA',
+        'EQUIPAMENTO': 'DESCRIÇÃO', 'TIPO EQUIPAMENTO': 'DESCRIÇÃO'
+    }
     
     for arq in arquivos:
         try:
-            # 1ª Tentativa: Pular 5 linhas (Padrão mais comum)
+            # 1ª Tentativa: Pular 5 linhas
             df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
             df_temp.columns = df_temp.columns.str.strip().str.upper()
+            df_temp = df_temp.rename(columns=mapa_colunas)
             
-            # Se não achou a coluna O.S., tenta pular 4 linhas
-            if not any(c in df_temp.columns for c in colunas_os_possiveis):
+            # Se não achou O.S., tenta pular 4 linhas
+            if 'O.S.' not in df_temp.columns:
                 df_temp = pd.read_excel(arq, skiprows=4) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=4)
                 df_temp.columns = df_temp.columns.str.strip().str.upper()
+                df_temp = df_temp.rename(columns=mapa_colunas)
 
             # Se ainda não achou, tenta pular 3 linhas
-            if not any(c in df_temp.columns for c in colunas_os_possiveis):
+            if 'O.S.' not in df_temp.columns:
                 df_temp = pd.read_excel(arq, skiprows=3) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=3)
                 df_temp.columns = df_temp.columns.str.strip().str.upper()
+                df_temp = df_temp.rename(columns=mapa_colunas)
 
             df_temp['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq), unit='s')
             lista_dfs.append(df_temp)
@@ -59,19 +71,20 @@ def carregar_os_encerradas():
     if not lista_dfs: return pd.DataFrame()
     df_final = pd.concat(lista_dfs, ignore_index=True)
 
-    col_os = next((col for col in colunas_os_possiveis if col in df_final.columns), None)
-
-    if col_os:
-        df_final = df_final.dropna(subset=[col_os])
-        df_final['OS_KEY'] = df_final[col_os].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
+    if 'O.S.' in df_final.columns:
+        df_final = df_final.dropna(subset=['O.S.'])
+        df_final['OS_KEY'] = df_final['O.S.'].astype(str).str.replace('.0', '', regex=False).str.strip().str.upper()
     else: 
         return pd.DataFrame() 
 
+    # Blindagem Suprema de Datas: Aceita formato de texto ("dd/mm/yyyy") e números seriais do Excel
     for col in ['ABERTURA', 'ENCERRAMENTO']:
         if col in df_final.columns:
-            df_final[col] = pd.to_datetime(df_final[col], errors='coerce', dayfirst=True)
+            datas_texto = pd.to_datetime(df_final[col], errors='coerce', dayfirst=True)
+            numeros = pd.to_numeric(df_final[col], errors='coerce')
+            datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
+            df_final[col] = datas_texto.fillna(datas_excel)
 
-    # Filtra mantendo apenas O.S. a partir de 2023
     if 'ENCERRAMENTO' in df_final.columns:
         df_final = df_final[df_final['ENCERRAMENTO'].dt.year >= 2023]
         df_final = df_final.sort_values(by=['ENCERRAMENTO', 'REPORT_CREATED_AT'], ascending=[False, False])
@@ -82,7 +95,7 @@ def carregar_os_encerradas():
     return df_final
 
 def carregar_todas_atividades(nome_pasta="03.Atividades"):
-    """Lê todos os relatórios mensais de atividades e os empilha (Leitura Blindada)."""
+    """Lê todos os relatórios mensais de atividades e os empilha."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
@@ -218,7 +231,7 @@ def limpar_dimensao_equipamentos(df_inventario_bruto):
     return df
 
 def enriquecer_base_inventario(df_inventario, df_os_encerradas):
-    """Cruza o Inventário com as OS Encerradas e calcula prazos, regras de carência de MP e garantia."""
+    """Cruza o Inventário com as OS Encerradas e calcula prazos e garantia."""
     if df_inventario.empty: return pd.DataFrame()
     df_inv = df_inventario.copy()
     hoje = pd.Timestamp(datetime.today().date())
@@ -235,12 +248,13 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
         
         programas_interesse = ["PREVENTIVA", "CALIBRAÇÃO", "SEGURANÇA ELÉTRICA", "INSPEÇÃO E TESTE OPERACIONAL", "VALIDAÇÃO", "QUALIFICAÇÃO TÉRMICA"]
         
-        df_os_filtrado = df_os[df_os[col_id_os].notna() & df_os[col_serie_os].notna() & df_os[col_prog_os].str.upper().str.strip().isin(programas_interesse)].copy()
-        df_os_filtrado[col_data_os] = pd.to_datetime(df_os_filtrado[col_data_os], errors='coerce')
-        
-        df_max_datas = df_os_filtrado.groupby([col_id_os, col_serie_os, col_prog_os])[col_data_os].max().unstack(level=col_prog_os).reset_index()
-        df_max_datas = df_max_datas.rename(columns={col_id_os: 'IDENTIFICADOR', col_serie_os: 'N.º SÉRIE'})
-        df_inv = df_inv.merge(df_max_datas, on=['IDENTIFICADOR', 'N.º SÉRIE'], how='left')
+        if col_id_os in df_os.columns and col_serie_os in df_os.columns and col_prog_os in df_os.columns:
+            df_os_filtrado = df_os[df_os[col_id_os].notna() & df_os[col_serie_os].notna() & df_os[col_prog_os].str.upper().str.strip().isin(programas_interesse)].copy()
+            df_os_filtrado[col_data_os] = pd.to_datetime(df_os_filtrado[col_data_os], errors='coerce')
+            
+            df_max_datas = df_os_filtrado.groupby([col_id_os, col_serie_os, col_prog_os])[col_data_os].max().unstack(level=col_prog_os).reset_index()
+            df_max_datas = df_max_datas.rename(columns={col_id_os: 'IDENTIFICADOR', col_serie_os: 'N.º SÉRIE'})
+            df_inv = df_inv.merge(df_max_datas, on=['IDENTIFICADOR', 'N.º SÉRIE'], how='left')
 
     colunas_mps = ["PREVENTIVA", "CALIBRAÇÃO", "SEGURANÇA ELÉTRICA", "INSPEÇÃO E TESTE OPERACIONAL", "VALIDAÇÃO", "QUALIFICAÇÃO TÉRMICA"]
     for col in colunas_mps:
