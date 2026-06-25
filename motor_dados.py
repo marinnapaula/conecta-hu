@@ -27,17 +27,31 @@ def carregar_mais_recente(nome_pasta):
         return pd.DataFrame()
 
 def carregar_os_encerradas():
-    """Lê TODA a pasta de OS Encerradas, filtra >= 2023 e remove duplicatas com estabilidade."""
+    """Lê TODA a pasta de OS Encerradas com LEITURA BLINDADA para arquivos antigos."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", "01.OS_Encerradas")
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
     if not arquivos: return pd.DataFrame()
 
     lista_dfs = []
+    colunas_os_possiveis = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
+    
     for arq in arquivos:
         try:
+            # 1ª Tentativa: Pular 5 linhas (Padrão mais comum)
             df_temp = pd.read_excel(arq, skiprows=5) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=5)
             df_temp.columns = df_temp.columns.str.strip().str.upper()
+            
+            # Se não achou a coluna O.S., tenta pular 4 linhas
+            if not any(c in df_temp.columns for c in colunas_os_possiveis):
+                df_temp = pd.read_excel(arq, skiprows=4) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=4)
+                df_temp.columns = df_temp.columns.str.strip().str.upper()
+
+            # Se ainda não achou, tenta pular 3 linhas
+            if not any(c in df_temp.columns for c in colunas_os_possiveis):
+                df_temp = pd.read_excel(arq, skiprows=3) if arq.endswith('.xlsx') else pd.read_csv(arq, skiprows=3)
+                df_temp.columns = df_temp.columns.str.strip().str.upper()
+
             df_temp['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq), unit='s')
             lista_dfs.append(df_temp)
         except: continue
@@ -45,7 +59,6 @@ def carregar_os_encerradas():
     if not lista_dfs: return pd.DataFrame()
     df_final = pd.concat(lista_dfs, ignore_index=True)
 
-    colunas_os_possiveis = ['N.º O.S.', 'Nº O.S.', 'N. O.S.', 'O.S.', 'OS', 'ORDEM DE SERVIÇO']
     col_os = next((col for col in colunas_os_possiveis if col in df_final.columns), None)
 
     if col_os:
@@ -58,6 +71,7 @@ def carregar_os_encerradas():
         if col in df_final.columns:
             df_final[col] = pd.to_datetime(df_final[col], errors='coerce', dayfirst=True)
 
+    # Filtra mantendo apenas O.S. a partir de 2023
     if 'ENCERRAMENTO' in df_final.columns:
         df_final = df_final[df_final['ENCERRAMENTO'].dt.year >= 2023]
         df_final = df_final.sort_values(by=['ENCERRAMENTO', 'REPORT_CREATED_AT'], ascending=[False, False])
@@ -68,10 +82,7 @@ def carregar_os_encerradas():
     return df_final
 
 def carregar_todas_atividades(nome_pasta="03.Atividades"):
-    """
-    Lê todos os relatórios mensais de atividades e os empilha.
-    Busca dinamicamente o cabeçalho do GETS nas linhas 4, 5 ou 6.
-    """
+    """Lê todos os relatórios mensais de atividades e os empilha (Leitura Blindada)."""
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = glob.glob(os.path.join(pasta_alvo, "*.xlsx")) + glob.glob(os.path.join(pasta_alvo, "*.csv"))
     
