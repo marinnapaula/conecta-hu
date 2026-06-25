@@ -10,3 +10,4 @@ plotly
 # --- Robô de Extração GETS (Automação) ---
 selenium
 webdriver-manager
+xlrd>=2.0.1
