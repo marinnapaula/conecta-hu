@@ -72,7 +72,7 @@ def obter_dados_processados():
     df_inv_bruto = carregar_mais_recente("04.Inventário")
     df_pend_bruto = carregar_mais_recente("02.OS_Pendentes")
     df_enc_bruto = carregar_os_encerradas()
-    df_atividades_bruto = carregar_todas_atividades("03.Atividades")
+    df_atividades_bruto = carregar_todas_atividades("05.Atendimento_de_OS")
     df_curva_fila = gerar_curva_backlog()
         
     df_inv_limpo = limpar_dimensao_equipamentos(df_inv_bruto)
@@ -315,7 +315,7 @@ with tab_fila:
                         else:
                             st.info("Esta O.S. está na fila aguardando o primeiro apontamento técnico.")
                     else:
-                        st.info("Logs indisponíveis na pasta '03.Atividades'.")
+                        st.info("Logs indisponíveis na pasta '05. Atendimento de OS'.")
         else:
             st.warning("Ajuste a busca para carregar as fichas técnicas.")
 
@@ -407,7 +407,6 @@ with tab_produtividade:
         col_classe_e = get_col(df_enc, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
         col_prog_e = get_col(df_enc, ['PROGRAMA MP', 'PROGRAMA', 'TIPO DE PREVENTIVA'])
         
-        # Filtro Global de Ano para Produtividade
         df_enc['Ano_Encerramento'] = df_enc[col_encerra_e].dt.year
         anos_disp = sorted(df_enc['Ano_Encerramento'].dropna().unique().astype(int).tolist(), reverse=True)
         
@@ -418,7 +417,6 @@ with tab_produtividade:
         if ano_filtro != "Todos os Anos":
             df_prod = df_prod[df_prod['Ano_Encerramento'] == ano_filtro]
         
-        # Lógica de Demanda (Abertas na base de Pendentes + Encerradas)
         lista_aberturas = []
         if col_abertura_e and col_os_e:
             lista_aberturas.append(df_enc[[col_os_e, col_abertura_e]].rename(columns={col_os_e: 'OS', col_abertura_e: 'DATA'}))
@@ -443,7 +441,6 @@ with tab_produtividade:
         if ano_filtro != "Todos os Anos":
             df_balanco = df_balanco[df_balanco['AnoMes'].str.startswith(str(ano_filtro))]
             
-        # FORMATADOR DE MESES EM PORTUGUÊS IGUAL AO POWER BI
         meses_pt = {'01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr', '05': 'Mai', '06': 'Jun', '07': 'Jul', '08': 'Ago', '09': 'Set', '10': 'Out', '11': 'Nov', '12': 'Dez'}
         def formatar_anomes(am):
             if pd.isna(am) or '-' not in str(am): return am
@@ -453,14 +450,12 @@ with tab_produtividade:
         df_balanco['Mes_Label'] = df_balanco['AnoMes'].apply(formatar_anomes)
         df_prod['Mes_Label'] = df_prod['AnoMes'].apply(formatar_anomes)
         
-        # 1º Gráfico: Entradas x Saídas
         with st.container(border=True):
             st.markdown("##### Entradas (Demandas) x Saídas (Produção Total)")
             fig_balanco = go.Figure()
             fig_balanco.add_trace(go.Bar(x=df_balanco['Mes_Label'], y=df_balanco['Demanda (Entradas)'], name='Demanda (Abertas)', marker_color='#70ad47'))
             fig_balanco.add_trace(go.Bar(x=df_balanco['Mes_Label'], y=df_balanco['Produção (Saídas)'], name='Total Entregas', marker_color='#44546a'))
             
-            # O Segredo para não cortar datas no eixo X: type='category'
             fig_balanco.update_layout(
                 barmode='group', height=350, margin=dict(l=0, r=0, t=10, b=0), 
                 legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
@@ -468,7 +463,6 @@ with tab_produtividade:
             )
             st.plotly_chart(fig_balanco, use_container_width=True)
         
-        # 2º Nível de Gráficos: Distribuições
         c_prod1, c_prod2 = st.columns(2)
         with c_prod1:
             with st.container(border=True):
