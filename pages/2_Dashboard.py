@@ -230,7 +230,7 @@ with tab_fila:
         if f_faixa_dias: df_f = df_f[df_f['FAIXA_DIAS'].isin(f_faixa_dias)]
         if f_local_fisico and col_local: df_f = df_f[df_f[col_local].isin(f_local_fisico)]
         if f_tipo_equip and col_tipo: df_f = df_f[df_f[col_tipo].isin(f_tipo_equip)]
-        if f_estado_os protect_col = col_estado: df_f = df_f[df_f[col_estado].isin(f_estado_os)]
+        if f_estado_os and col_estado: df_f = df_f[df_f[col_estado].isin(f_estado_os)]
         if f_eq_parado != "Todos" and col_parado: df_f = df_f[df_f[col_parado] == f_eq_parado]
         if f_eq_critico != "Todos" and col_critico: df_f = df_f[df_f[col_critico] == f_eq_critico]
 
@@ -298,7 +298,6 @@ with tab_fila:
                                 df_print_act = df_print_act.sort_values(by=col_dt_inicio, ascending=False)
                                 df_print_act[col_dt_inicio] = df_print_act[col_dt_inicio].dt.strftime('%d/%m/%Y %H:%M')
                                 
-                            # TRAVA DE SEGURANÇA VISUAL: Alinhamento das colunas com cabeçalho Atualização
                             config_colunas = {}
                             if col_dt_inicio: config_colunas[col_dt_inicio] = st.column_config.TextColumn("Atualização", width="medium")
                             if col_exec_act: config_colunas[col_exec_act] = st.column_config.TextColumn("Executor", width="medium")
@@ -307,7 +306,6 @@ with tab_fila:
                                 
                             st.dataframe(df_print_act, use_container_width=True, hide_index=True, column_config=config_colunas)
                             
-                            # VISUALIZAÇÃO COMPLEMENTAR EM CARD (Para relatórios imensos)
                             with st.expander("Ver textos de Serviços Executados completos"):
                                 for _, lista_row in df_print_act.iterrows():
                                     t_ini = lista_row.get(col_dt_inicio, 'N/I')
