@@ -142,7 +142,7 @@ else:
     df_enc = pd.DataFrame()
 
 # =====================================================================
-# ESTRUTURA REORDENADA E CONSOLIDADA (8 ABAS DEFINITIVAS)
+# ESTRUTURA E REORDENAÇÃO DE ABAS (8 ABAS INTEGRADAS)
 # =====================================================================
 tab_indicadores, tab_fila, tab_produtividade, tab_calor, tab_mapa, tab_parque, tab_financeiro, tab_historico = st.tabs([
     "Indicadores", 
@@ -156,16 +156,19 @@ tab_indicadores, tab_fila, tab_produtividade, tab_calor, tab_mapa, tab_parque, t
 ])
 
 # =====================================================================
-# TAB 1: INDICADORES (FOTOGRAFIA DO MOMENTO)
+# TAB 1: INDICADORES (ESTRUTURA DE GRÁFICOS ESPELHADOS DO POWER BI)
 # =====================================================================
 with tab_indicadores:
-    tma_g_12 = 0; tma_mc_12 = 0; tma_mp_12 = 0
+    tma_g_12 = 0; tma_g_30 = 0; tma_mp_12 = 0; tma_mc_12 = 0
     if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
         df_e = df_enc.copy()
         df_e['DURACAO'] = (df_e['ENCERRAMENTO'] - df_e['ABERTURA']).dt.days
         hoje = pd.Timestamp(datetime.today().date())
         df_12m = df_e[df_e['ENCERRAMENTO'] >= (hoje - pd.DateOffset(months=12))]
+        df_30d = df_e[df_e['ENCERRAMENTO'] >= (hoje - pd.DateOffset(days=30))]
+        
         tma_g_12 = df_12m['DURACAO'].mean() if not df_12m.empty else 0
+        tma_g_30 = df_30d['DURACAO'].mean() if not df_30d.empty else 0
         
         col_classe_e = get_col(df_12m, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
         if col_classe_e:
@@ -184,7 +187,8 @@ with tab_indicadores:
         df_pend_mc = df_pend[df_pend['TIPO_MANUTENCAO'] == 'CORRETIVA']
         tm_aberta_mc = df_pend_mc['DIAS_EM_ABERTO'].mean() if not df_pend_mc.empty else 0
 
-    st.markdown("<h4 style='color: #32A347; margin-bottom: 5px; margin-top: 5px;'>Visão Geral de Desempenho e Fila</h4>", unsafe_allow_html=True)
+    # Linha Executiva Superiores Sutil (Cards Dinâmicos)
+    st.markdown("<h4 style='color: #154899; margin-bottom: 5px; margin-top: 5px;'>Visão Geral de Desempenho e Fila</h4>", unsafe_allow_html=True)
     
     ind_c1, ind_c2, ind_c3, ind_c4, ind_c5 = st.columns(5)
     ind_c1.metric("TMA Geral", f"{tma_g_12:.1f} Dias", help="Tempo Médio de Atendimento Geral (Últimos 12 meses)")
@@ -664,15 +668,15 @@ with tab_financeiro:
                 st.plotly_chart(fig_curva, use_container_width=True)
 
 # =====================================================================
-# TAB 8: HISTÓRICO GERAL (O ESPELHO DO POWER BI)
+# TAB 8: HISTÓRICO GERAL (O ESPELHO FIEL DO POWER BI)
 # =====================================================================
 with tab_historico:
-    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico (Tendência de Backlog e Produtividade)</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico Retroativo (Fila e Desempenho)</h3>", unsafe_allow_html=True)
     
     r1c1, r1c2 = st.columns(2)
     r2c1, r2c2 = st.columns(2)
     
-    # ---------------- GRÁFICOS DE TMA ----------------
+    # 1. Processamento e Plotagem de Dados de TMA (Encerradas Históricas)
     if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
         df_tma = df_enc.copy()
         df_tma['DURACAO'] = (df_tma['ENCERRAMENTO'] - df_tma['ABERTURA']).dt.days
@@ -683,24 +687,25 @@ with tab_historico:
         df_tma['MesNum'] = df_tma['ENCERRAMENTO'].dt.month
         df_tma['AnoMes'] = df_tma['ENCERRAMENTO'].dt.strftime('%Y-%m')
 
-        meses_pt = {1:'janeiro', 2:'fevereiro', 3:'março', 4:'abril', 5:'maio', 6:'junho', 7:'julho', 8:'agosto', 9:'setembro', 10:'outubro', 11:'novembro', 12:'dezembro'}
+        meses_pt = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho', 7:'Julho', 8:'Agosto', 9:'Setembro', 10:'Outubro', 11:'Novembro', 12:'Dezembro'}
         df_tma['MesNome'] = df_tma['MesNum'].map(meses_pt)
 
-        # Dados para "TMA - HISTÓRICO" (Linha por ano)
+        # Gráfico: TMA - HISTÓRICO (Linhas Coloridas Espelhadas)
         df_tma_ano = df_tma.groupby(['Ano', 'MesNum', 'MesNome'])['DURACAO'].mean().reset_index()
         df_tma_ano = df_tma_ano.sort_values(['Ano', 'MesNum'])
-
-        # Dados para "TMA X MÊS" (Barra contínua)
-        df_tma_mes = df_tma.groupby(['AnoMes', 'Ano', 'MesNum', 'MesNome'])['DURACAO'].mean().reset_index()
-        df_tma_mes = df_tma_mes.sort_values('AnoMes')
-        df_tma_mes['Label'] = df_tma_mes['MesNome'] + " " + df_tma_mes['Ano']
 
         with r1c2:
             with st.container(border=True):
                 st.markdown("##### TMA - HISTÓRICO")
-                fig_tma_hist = px.line(df_tma_ano, x='MesNome', y='DURACAO', color='Ano', markers=True, color_discrete_sequence=['#70ad47', '#44546a', '#eeb022', '#c00000'])
+                fig_tma_hist = px.line(df_tma_ano, x='MesNome', y='DURACAO', color='Ano', markers=True, 
+                                       color_discrete_sequence=['#70ad47', '#44546a', '#eeb022', '#c00000'])
                 fig_tma_hist.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None, legend_title_text=None)
                 st.plotly_chart(fig_tma_hist, use_container_width=True)
+
+        # Gráfico: TMA X MÊS (Barras Sequenciais de 2023 a 2026)
+        df_tma_mes = df_tma.groupby(['AnoMes', 'Ano', 'MesNum', 'MesNome'])['DURACAO'].mean().reset_index()
+        df_tma_mes = df_tma_mes.sort_values('AnoMes')
+        df_tma_mes['Label'] = df_tma_mes['MesNome'] + " " + df_tma_mes['Ano']
 
         with st.container(border=True):
             st.markdown("##### TMA X MÊS")
@@ -708,21 +713,26 @@ with tab_historico:
             fig_tma_mes_chart.update_layout(height=250, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None, xaxis={'type': 'category'})
             st.plotly_chart(fig_tma_mes_chart, use_container_width=True)
 
-    # ---------------- GRÁFICOS DE FILA E BACKLOG ----------------
+    # 2. Processamento e Plotagem de Dados da Curva de Backlog Histórica
     if not df_curva_fila.empty and 'Tempo Médio Aberta' in df_curva_fila.columns:
+        
+        # Gráfico: TOTAL O.S x FAIXA DE DIAS (Área Empilhada Cronológica)
         with r1c1:
             with st.container(border=True):
                 st.markdown("##### TOTAL O.S x FAIXA DE DIAS")
                 fig_faixa = go.Figure()
-                cores_faixa = ['#70ad47', '#44546a', '#eeb022', '#c00000', '#5b9bd5']
+                cores_faixa = ['#70ad47', '#44546a', '#eeb022', '#ed7d31', '#5b9bd5']
                 colunas_faixa = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
                 
                 for idx, col in enumerate(colunas_faixa):
-                    fig_faixa.add_trace(go.Scatter(x=df_curva_fila['Data'], y=df_curva_fila[col], name=col, mode='lines', stackgroup='one', line=dict(width=0), marker_color=cores_faixa[idx]))
+                    if col in df_curva_fila.columns:
+                        fig_faixa.add_trace(go.Scatter(x=df_curva_fila['Data'], y=df_curva_fila[col], name=col, 
+                                                       mode='lines', stackgroup='one', line=dict(width=0), marker_color=cores_faixa[idx]))
                 
                 fig_faixa.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
                 st.plotly_chart(fig_faixa, use_container_width=True)
 
+        # Gráfico: TEMPO MÉDIO - O.S PENDENTE ABERTA
         with r2c1:
             with st.container(border=True):
                 st.markdown("##### TEMPO MÉDIO - O.S PENDENTE ABERTA")
@@ -732,6 +742,7 @@ with tab_historico:
                 fig_tm.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
                 st.plotly_chart(fig_tm, use_container_width=True)
 
+        # Gráfico: TOTAL - O.S CRÍTICAS PENDENTES
         with r2c2:
             with st.container(border=True):
                 st.markdown("##### TOTAL - O.S CRÍTICAS PENDENTES")
