@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import numpy as np
 from datetime import datetime
 import os
@@ -89,7 +90,7 @@ def get_col(df, options):
     return None
 
 # =====================================================================
-# 4. BARRA LATERAL (FILTROS GLOBAIS DA DIRETORIA)
+# 4. BARRA LATERAL (FILTROS GLOBAIS DA DIRETORIA E PREPARAÇÃO GLOBAL)
 # =====================================================================
 st.sidebar.markdown("<h2 style='text-align: center; color: #154899;'>Filtros Globais</h2>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
@@ -109,6 +110,26 @@ if not df_pend_bruto.empty:
     c_tip_p = get_col(df_pend, ['TIPO EQUIPAMENTO', 'EQUIPAMENTO', 'DESCRIÇÃO'])
     if filtro_local and c_loc_p: df_pend = df_pend[df_pend[c_loc_p].isin(filtro_local)]
     if filtro_tipo and c_tip_p:  df_pend = df_pend[df_pend[c_tip_p].isin(filtro_tipo)]
+    
+    # Preparação Global de Prazos e Classes para os Gráficos
+    col_abertura_p = get_col(df_pend, ['ABERTURA', 'DATA ABERTURA'])
+    if col_abertura_p:
+        df_pend[col_abertura_p] = pd.to_datetime(df_pend[col_abertura_p], errors='coerce')
+        df_pend['DIAS_EM_ABERTO'] = (pd.Timestamp(datetime.today().date()) - df_pend[col_abertura_p]).dt.days
+    else:
+        df_pend['DIAS_EM_ABERTO'] = 0
+        
+    cond_fila = [df_pend['DIAS_EM_ABERTO'] <= 5, df_pend['DIAS_EM_ABERTO'] <= 15, df_pend['DIAS_EM_ABERTO'] <= 30, df_pend['DIAS_EM_ABERTO'] <= 60]
+    df_pend['FAIXA_DIAS'] = np.select(cond_fila, ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias"], default="Mais de 60 dias")
+    df_pend['ORDEM_FAIXA'] = np.select(cond_fila, [1, 2, 3, 4], default=5)
+    
+    col_classe_p = get_col(df_pend, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
+    if col_classe_p:
+        df_pend['TIPO_MANUT_CALC'] = df_pend[col_classe_p].astype(str).str.upper()
+        df_pend['TIPO_MANUTENCAO'] = np.where(df_pend['TIPO_MANUT_CALC'].str.contains('PREV|CALIB|MP|PROG|ROTINA'), 'PROGRAMADA',
+                                     np.where(df_pend['TIPO_MANUT_CALC'].str.contains('CORR|MC|QUEBRA'), 'CORRETIVA', 'OUTRAS'))
+    else:
+        df_pend['TIPO_MANUTENCAO'] = 'NÃO IDENTIFICADO'
 else:
     df_pend = pd.DataFrame()
 
@@ -122,10 +143,10 @@ else:
     df_enc = pd.DataFrame()
 
 # Definição das Abas Estreitadas
-tab_parque, tab_fila, tab_produtividade, tab_financeiro = st.tabs([
+tab_parque, tab_fila, tab_indicadores, tab_financeiro = st.tabs([
     "Ciclo de Vida do Parque", 
     "Acompanhamento de O.S. Pendentes", 
-    "Produtividade & TMA",
+    "Indicadores",
     "Gestão Financeira & Ativos"
 ])
 
@@ -174,7 +195,6 @@ with tab_parque:
 with tab_fila:
     if not df_pend.empty:
         df_p = df_pend.copy()
-        
         col_os = get_col(df_p, ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS', 'OS_KEY'])
         col_abertura = get_col(df_p, ['ABERTURA', 'DATA ABERTURA'])
         col_critico = get_col(df_p, ['EQUIPAMENTO CRÍTICO', 'EQUIPAMENTO CRITICO'])
@@ -185,19 +205,9 @@ with tab_fila:
         col_estado = get_col(df_p, ['ESTADO', 'ESTADO DA O.S.'])
         col_executor = get_col(df_p, ['EXECUTOR', 'RESPONSÁVEL'])
         
-        if col_abertura:
-            df_p[col_abertura] = pd.to_datetime(df_p[col_abertura], errors='coerce')
-            df_p['DIAS_EM_ABERTO'] = (pd.Timestamp(datetime.today().date()) - df_p[col_abertura]).dt.days
-        else:
-            df_p['DIAS_EM_ABERTO'] = 0
-            
-        cond_fila = [df_p['DIAS_EM_ABERTO'] <= 5, df_p['DIAS_EM_ABERTO'] <= 15, df_p['DIAS_EM_ABERTO'] <= 30, df_p['DIAS_EM_ABERTO'] <= 60]
-        df_p['FAIXA_DIAS'] = np.select(cond_fila, ["0 a 5 dias", "6 a 15 dias", "16 a 30 dias", "31 a 60 dias"], default="Mais de 60 dias")
-        
         if col_critico: df_p[col_critico] = df_p[col_critico].astype(str).str.upper().str.strip()
         if col_parado: df_p[col_parado] = df_p[col_parado].astype(str).str.upper().str.strip()
 
-        # Medidas táticas dos cartões superiores
         total_f = len(df_p)
         parados_f = len(df_p[df_p[col_parado] == 'SIM']) if col_parado else 0
         criticos_f = len(df_p[df_p[col_critico] == 'SIM']) if col_critico else 0
@@ -321,31 +331,97 @@ with tab_fila:
             st.warning("Ajuste a busca para carregar as fichas técnicas.")
 
 # =====================================================================
-# TAB 3: PRODUTIVIDADE E TMA
+# TAB 3: INDICADORES (PRODUTIVIDADE E PANORAMA)
 # =====================================================================
-with tab_produtividade:
-    if not df_enc.empty:
+with tab_indicadores:
+    st.markdown("<h3 style='color: #154899;'>Tempo Médio de Atendimento (TMA)</h3>", unsafe_allow_html=True)
+    
+    # 1. Cálculos de TMA (da Tabela de Encerradas)
+    tma_g_12 = 0; tma_g_30 = 0; tma_mp_12 = 0; tma_mc_12 = 0
+    if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
         df_e = df_enc.copy()
-        total_entregas = len(df_e)
-        if 'ABERTURA' in df_e.columns and 'ENCERRAMENTO' in df_e.columns:
-            df_e['DURACAO'] = (df_e['ENCERRAMENTO'] - df_e['ABERTURA']).dt.days
-            tma_geral = df_e['DURACAO'].mean()
-        else:
-            tma_geral = 0
+        df_e['DURACAO'] = (df_e['ENCERRAMENTO'] - df_e['ABERTURA']).dt.days
+        
+        hoje = pd.Timestamp(datetime.today().date())
+        df_12m = df_e[df_e['ENCERRAMENTO'] >= (hoje - pd.DateOffset(months=12))]
+        df_30d = df_e[df_e['ENCERRAMENTO'] >= (hoje - pd.DateOffset(days=30))]
+        
+        tma_g_12 = df_12m['DURACAO'].mean() if not df_12m.empty else 0
+        tma_g_30 = df_30d['DURACAO'].mean() if not df_30d.empty else 0
+        
+        col_classe_e = get_col(df_12m, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
+        if col_classe_e:
+            cond_mp = df_12m[col_classe_e].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA')
+            cond_mc = df_12m[col_classe_e].astype(str).str.upper().str.contains('CORR|MC|QUEBRA')
             
-        p1, p2, p3 = st.columns(3)
-        p1.metric("Total de Entregas (Filtrado)", f"{total_entregas:,}".replace(",", "."))
-        p2.metric("TMA Geral do Atendimento", f"{tma_geral:.1f} dias")
-        p3.metric("Velocidade Média Estimada", f"{int(total_entregas / 12 if total_entregas > 12 else total_entregas)} /mês")
+            tma_mp_12 = df_12m[cond_mp]['DURACAO'].mean() if not df_12m[cond_mp].empty else 0
+            tma_mc_12 = df_12m[cond_mc]['DURACAO'].mean() if not df_12m[cond_mc].empty else 0
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        if 'ENCERRAMENTO' in df_e.columns:
-            st.markdown("##### Histórico Mensal de Conclusão de O.S.")
-            df_e['AnoMes'] = df_e['ENCERRAMENTO'].dt.strftime('%Y-%m')
-            df_mensal = df_e.groupby('AnoMes').size().reset_index(name='Entregas').sort_values(by='AnoMes')
-            fig_mensal = px.line(df_mensal, x='AnoMes', y='Entregas', text='Entregas', markers=True, color_discrete_sequence=['#154899'])
-            fig_mensal.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=320)
-            st.plotly_chart(fig_mensal, use_container_width=True)
+    # UI do TMA - Rádio Button Integrado
+    col_tma_sel, col_tma_met, col_vazio = st.columns([1.5, 1, 2])
+    
+    with col_tma_sel:
+        visao_tma = st.radio("Filtro de Visão do TMA:", 
+            ["Geral (12 Meses)", "Geral (30 Dias)", "Preventiva / Programada (12 Meses)", "Corretiva (12 Meses)"],
+            index=0)
+            
+    dict_tma = {
+        "Geral (12 Meses)": tma_g_12,
+        "Geral (30 Dias)": tma_g_30,
+        "Preventiva / Programada (12 Meses)": tma_mp_12,
+        "Corretiva (12 Meses)": tma_mc_12
+    }
+    
+    val_tma = dict_tma[visao_tma]
+    with col_tma_met:
+        st.metric(f"TMA {visao_tma}", f"{val_tma:.2f} Dias" if pd.notnull(val_tma) else "0.00 Dias")
+
+    st.markdown("---")
+    st.markdown("<h3 style='color: #154899;'>Panorama de O.S. Pendentes</h3>", unsafe_allow_html=True)
+    
+    # 2. Painel de Gráficos de Fila
+    if not df_pend.empty:
+        col_estado_graf = get_col(df_pend, ['ESTADO', 'ESTADO DA O.S.'])
+        col_os_graf = get_col(df_pend, ['N.º O.S.', 'Nº O.S.', 'O.S.', 'OS', 'OS_KEY'])
+        
+        if col_estado_graf and col_os_graf:
+            c_esq, c_dir = st.columns([1.2, 1])
+            
+            # Lado Esquerdo: Média x Total por Estado
+            with c_esq:
+                with st.container(border=True):
+                    st.markdown("##### Média de Dias em Aberto x Total de O.S. por Estado")
+                    df_est = df_pend.groupby(col_estado_graf).agg(Total_OS=(col_os_graf, 'count'), Media_Dias=('DIAS_EM_ABERTO', 'mean')).reset_index()
+                    df_est = df_est.sort_values('Total_OS', ascending=True)
+                    
+                    fig_est = go.Figure()
+                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Total_OS'], name='Total O.S.', orientation='h', marker_color='#32A347'))
+                    fig_est.add_trace(go.Bar(y=df_est[col_estado_graf], x=df_est['Media_Dias'], name='Média Dias em Aberto', orientation='h', marker_color='#154899'))
+                    fig_est.update_layout(barmode='group', height=500, margin=dict(l=0, r=0, t=20, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5))
+                    st.plotly_chart(fig_est, use_container_width=True)
+            
+            # Lado Direito: Faixa de Dias e Tipo de Manutenção
+            with c_dir:
+                with st.container(border=True):
+                    st.markdown("##### Total O.S. x Faixa de Dias")
+                    df_faixa_g = df_pend.groupby(['FAIXA_DIAS', 'ORDEM_FAIXA']).size().reset_index(name='Total')
+                    df_faixa_g = df_faixa_g.sort_values('ORDEM_FAIXA', ascending=False)
+                    fig_faixa = px.bar(df_faixa_g, y='FAIXA_DIAS', x='Total', orientation='h', text='Total', color_discrete_sequence=['#32A347'])
+                    fig_faixa.update_layout(height=200, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
+                    st.plotly_chart(fig_faixa, use_container_width=True)
+                    
+                with st.container(border=True):
+                    st.markdown("##### O.S. Pendente x Tipo de Manutenção")
+                    df_tp = df_pend['TIPO_MANUTENCAO'].value_counts().reset_index()
+                    df_tp.columns = ['Tipo', 'Total']
+                    fig_tp = px.pie(df_tp, names='Tipo', values='Total', hole=0.5, color_discrete_sequence=['#154899', '#32A347', '#e6e6e6'])
+                    fig_tp.update_traces(textposition='inside', textinfo='percent+label')
+                    fig_tp.update_layout(height=220, margin=dict(l=0, r=0, t=10, b=0), showlegend=True)
+                    st.plotly_chart(fig_tp, use_container_width=True)
+        else:
+            st.info("Colunas necessárias de Estado ou Número da O.S. não encontradas para gerar os gráficos.")
+    else:
+        st.success("Não há Ordens de Serviço pendentes na base atual.")
 
 # =====================================================================
 # TAB 4: GESTÃO FINANCEIRA & ATIVOS
