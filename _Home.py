@@ -115,7 +115,7 @@ with c2:
 # =====================================================================
 # 5. RODAPÉ (TEXTO E LOGO INFERIOR)
 # =====================================================================
-st.markdown("<div class='center-subtitle'>ENGENHARIA CLÍNICA - HU-UNIVASF / HU BRASIL | V - 1.0 </div>", unsafe_allow_html=True)
+st.markdown("<div class='center-subtitle'>ENGENHARIA CLÍNICA - HU-UNIVASF / HU BRASIL | V - 0.1.0 </div>", unsafe_allow_html=True)
 
 col_v3, col_logo_bot, col_v4 = st.columns([4.2, 1.6, 4.2])
 with col_logo_bot:
