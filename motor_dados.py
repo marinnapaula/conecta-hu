@@ -66,6 +66,18 @@ def categorizar_faixa(dias):
     if dias <= 60: return "31 a 60 dias"
     return "Mais de 60 dias"
 
+def parse_data_blindada(serie_datas):
+    """Super tradutor de datas: tenta 4 métodos em cascata para não perder nenhuma O.S."""
+    raw = serie_datas.astype(str).str.split(',').str[-1].str.strip()
+    raw_10 = raw.str.slice(0, 10) # Pega só o DD/MM/YYYY ignorando horas
+    
+    d1 = pd.to_datetime(raw_10, format='%d/%m/%Y', errors='coerce')
+    d2 = pd.to_datetime(raw_10, format='%Y-%m-%d', errors='coerce')
+    d3 = pd.to_datetime(pd.to_numeric(raw, errors='coerce'), origin='1899-12-30', unit='D', errors='coerce')
+    d4 = pd.to_datetime(raw, dayfirst=True, errors='coerce')
+    
+    return d1.fillna(d2).fillna(d3).fillna(d4)
+
 def gerar_curva_backlog():
     caminho_pasta = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
     arquivos = get_arquivos(caminho_pasta) 
@@ -82,7 +94,6 @@ def gerar_curva_backlog():
 
     for arq in arquivos:
         try:
-            # A REGRA DE OURO: Pega a data SOMENTE do nome do arquivo!
             data_ref = extrair_data_do_nome(os.path.basename(arq))
             if not data_ref: 
                 continue 
@@ -96,12 +107,8 @@ def gerar_curva_backlog():
             
             if not (c_os and c_abert): continue
                 
-            # CORREÇÃO CIRÚRGICA: Trata datas em texto e em formato Excel Serial (ex: 45200.0)
-            raw_dates = df[c_abert].astype(str).str.split(',').str[-1].str.strip()
-            datas_texto = pd.to_datetime(raw_dates, errors='coerce', dayfirst=True)
-            datas_excel = pd.to_datetime(pd.to_numeric(raw_dates, errors='coerce'), origin='1899-12-30', unit='D', errors='coerce')
-            
-            df['DT_ABERTURA'] = datas_texto.fillna(datas_excel)
+            # CORREÇÃO CIRÚRGICA: Trata datas com o Super Tradutor
+            df['DT_ABERTURA'] = parse_data_blindada(df[c_abert])
             df = df.dropna(subset=['DT_ABERTURA'])
             
             # Trava: A O.S. tem que ter sido aberta ANTES ou NO MESMO DIA do relatório (snapshot)
@@ -111,8 +118,8 @@ def gerar_curva_backlog():
             # Calcula os dias EXATOS que a O.S estava aberta naquele relatório!
             df['DIAS_ABERTO'] = (data_ref - df['DT_ABERTURA']).dt.days
             
-            # MATANDO OS PICOS ABSURDOS: Ignora O.S com dias negativos ou abertas há mais de 5 anos (outliers)
-            df = df[(df['DIAS_ABERTO'] >= 0) & (df['DIAS_ABERTO'] < 1825)]
+            # MATANDO OS PICOS ABSURDOS: Ignora O.S com dias negativos ou abertas há mais de 2 anos (730 dias)
+            df = df[(df['DIAS_ABERTO'] >= 0) & (df['DIAS_ABERTO'] < 730)]
             if df.empty: continue
             
             df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
