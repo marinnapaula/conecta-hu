@@ -95,7 +95,6 @@ def get_col(df, options):
 st.sidebar.markdown("<h2 style='text-align: center; color: #154899;'>Filtros Globais</h2>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
-# Novo filtro de datas para análise pontual de gráficos temporais
 ano_atual = datetime.today().year
 anos_opcoes = list(range(2023, ano_atual + 2))
 c_data1, c_data2 = st.sidebar.columns(2)
@@ -111,14 +110,12 @@ filtro_tipo = st.sidebar.multiselect("Tipo de Equipamento", tipos_disponiveis, p
 aplicar_filtro_local = len(filtro_local) > 0 and len(filtro_local) < len(locais_disponiveis)
 aplicar_filtro_tipo = len(filtro_tipo) > 0 and len(filtro_tipo) < len(tipos_disponiveis)
 
-# Aplicando os filtros globalmente em todas as bases (Inventário, Pendentes, Encerradas, Histórico)
 if aplicar_filtro_local and not df_inv.empty: df_inv = df_inv[df_inv['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
 if aplicar_filtro_tipo and not df_inv.empty: df_inv = df_inv[df_inv['DESCRIÇÃO'].isin(filtro_tipo)]
 
 if not df_curva_fila.empty:
     if aplicar_filtro_local: df_curva_fila = df_curva_fila[df_curva_fila['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
     if aplicar_filtro_tipo:  df_curva_fila = df_curva_fila[df_curva_fila['DESCRIÇÃO'].isin(filtro_tipo)]
-    # Filtro Temporal para a curva de backlog (Opcional)
     df_curva_fila = df_curva_fila[(df_curva_fila['DT_SNAP'].dt.year >= ano_inicio) & (df_curva_fila['DT_SNAP'].dt.year <= ano_fim)]
 
 if not df_pend_bruto.empty:
@@ -691,85 +688,24 @@ with tab_financeiro:
 with tab_historico:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico Retroativo (Fila e Desempenho)</h3>", unsafe_allow_html=True)
     
-    # --- CALENDÁRIO MENSAL DE FLUXO (RETRÁTIL) ---
-    with st.expander("📅 CONSULTAR CALENDÁRIO DE FLUXO DIÁRIO DE O.S.", expanded=False):
-        import calendar
-        c_ano, c_mes, _ = st.columns([1.5, 2, 4])
-        ano_atual = datetime.today().year
-        mes_atual = datetime.today().month
-        
-        ano_sel = c_ano.selectbox("Ano do Calendário", sorted(list(set([ano_atual, 2024, 2025, 2026])), reverse=True), key="cal_ano")
-        meses_nome = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-        mes_nome_sel = c_mes.selectbox("Mês do Calendário", meses_nome, index=mes_atual-1, key="cal_mes")
-        mes_sel = meses_nome.index(mes_nome_sel) + 1
-        
-        dados_por_dia = {}
-        for df_temp in [df_enc, df_pend]:
-            if df_temp is not None and not df_temp.empty:
-                col_ab = get_col(df_temp, ['ABERTURA', 'DATA ABERTURA'])
-                if col_ab:
-                    df_valid = df_temp.dropna(subset=[col_ab]).copy()
-                    df_valid[col_ab] = pd.to_datetime(df_valid[col_ab], errors='coerce')
-                    df_filtro = df_valid[(df_valid[col_ab].dt.year == ano_sel) & (df_valid[col_ab].dt.month == mes_sel)]
-                    for dia, group in df_filtro.groupby(df_filtro[col_ab].dt.day):
-                        if dia not in dados_por_dia: dados_por_dia[dia] = {'abertas': 0, 'fechadas': 0}
-                        dados_por_dia[dia]['abertas'] += len(group)
-                        
-        if df_enc is not None and not df_enc.empty:
-            col_enc = get_col(df_enc, ['ENCERRAMENTO', 'DATA ENCERRAMENTO'])
-            if col_enc:
-                df_valid_enc = df_enc.dropna(subset=[col_enc]).copy()
-                df_valid_enc[col_enc] = pd.to_datetime(df_valid_enc[col_enc], errors='coerce')
-                df_filtro_enc = df_valid_enc[(df_valid_enc[col_enc].dt.year == ano_sel) & (df_valid_enc[col_enc].dt.month == mes_sel)]
-                for dia, group in df_filtro_enc.groupby(df_filtro_enc[col_enc].dt.day):
-                    if dia not in dados_por_dia: dados_por_dia[dia] = {'abertas': 0, 'fechadas': 0}
-                    dados_por_dia[dia]['fechadas'] += len(group)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        dias_semana = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
-        cols_header = st.columns(7)
-        for idx, col_h in enumerate(cols_header):
-            col_h.markdown(f"<p style='text-align: center; font-weight: bold; margin-bottom:5px;'>{dias_semana[idx]}</p>", unsafe_allow_html=True)
-            
-        matriz_mes = calendar.monthcalendar(ano_sel, mes_sel)
-        for semana in matriz_mes:
-            cols_dia = st.columns(7)
-            for idx, dia in enumerate(semana):
-                with cols_dia[idx]:
-                    if dia == 0:
-                        st.markdown("<div style='min-height: 90px; background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 5px; margin-bottom: 10px;'></div>", unsafe_allow_html=True)
-                    else:
-                        info = dados_por_dia.get(dia, {'abertas': 0, 'fechadas': 0})
-                        bg_color = "#ffffff"
-                        if info['abertas'] > info['fechadas'] and info['abertas'] > 0: bg_color = "#fff3cd"
-                        elif info['fechadas'] > 0 and info['abertas'] == 0: bg_color = "#e2f0d9"
-                            
-                        html_card = f"""
-                        <div style='min-height: 90px; background-color: {bg_color}; border: 1px solid #dee2e6; border-radius: 5px; padding: 8px; box-shadow: 1px 1px 3px rgba(0,0,0,0.05); text-align: left; margin-bottom: 10px;'>
-                            <span style='font-weight: bold; font-size: 14px; color: #495057;'>{dia}</span>
-                            <div style='margin-top: 5px; font-size: 11px; font-weight: 500;'>
-                                <span style='color: #c00000;'>📥 Ab: {info['abertas']}</span><br>
-                                <span style='color: #70ad47;'>📤 Fech: {info['fechadas']}</span>
-                            </div>
-                        </div>
-                        """
-                        st.markdown(html_card, unsafe_allow_html=True)
-
-    # --- DEFINIÇÃO DA GRELHA DE CONTENTORES (IDÊNTICA AO POWER BI) ---
+    # --- DEFINIÇÃO DA GRELHA DE CONTENTORES ---
     r1c1, r1c2 = st.columns(2)
     r2c1, r2c2 = st.columns(2)
 
-    # Processamento Dinâmico de Dados de Backlog
+    # Processamento Dinâmico de Dados de Backlog (Responde aos Filtros!)
     if not df_curva_fila.empty:
+        # Remover outliers absurdos que distorcem a média (ex: erros de digitação de 1970 ou tickets "esquecidos" de 10 anos atrás)
+        # Capamos para focar no fluxo ativo recente, assim como o BI faz naturalmente.
+        df_curva_limpa = df_curva_fila[df_curva_fila['DIAS_ABERTO'] < 730].copy()
         
-        # Agrupa os dados no momento
-        df_counts = df_curva_fila.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
+        # Agrupa os dados no momento baseando-se no filtro lateral ativo
+        df_counts = df_curva_limpa.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
         ordem_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
         for faixa in ordem_faixas:
             if faixa not in df_counts.columns: df_counts[faixa] = 0
         df_counts = df_counts[ordem_faixas]
 
-        df_metrics = df_curva_fila.groupby('DT_SNAP').agg(
+        df_metrics = df_curva_limpa.groupby('DT_SNAP').agg(
             Tempo_Medio_Aberta=('DIAS_ABERTO', 'mean'),
             Criticas=('IS_CRITICO', 'sum'),
             Parados=('IS_PARADO', 'sum')
@@ -785,6 +721,15 @@ with tab_historico:
             df_hist_agrupado['Taxa_Disp'] = ((total_ativos_filtro - df_hist_agrupado['Parados']) / total_ativos_filtro) * 100
         else:
             df_hist_agrupado['Taxa_Disp'] = 0
+
+        # NOVO GRÁFICO: TAXA DE DISPONIBILIDADE GLOBAL HISTÓRICA (Ocupa o ecrã inteiro)
+        with st.container(border=True):
+            st.markdown("##### FOTO HISTÓRICA DA TAXA DE DISPONIBILIDADE")
+            fig_disp = px.line(df_hist_agrupado, x='Data', y='Taxa_Disp', markers=True, color_discrete_sequence=['#154899'])
+            fig_disp.update_traces(fill='tozeroy', fillcolor='rgba(21, 72, 153, 0.2)')
+            fig_disp.add_hline(y=95, line_dash="dash", line_color="green", annotation_text="Meta 95%", annotation_position="bottom right")
+            fig_disp.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0), yaxis_title="Disponibilidade (%)")
+            st.plotly_chart(fig_disp, use_container_width=True)
 
         # Gráfico: TOTAL O.S x FAIXA DE DIAS
         with r1c1:
@@ -821,7 +766,6 @@ with tab_historico:
         with r2c2:
             with st.container(border=True):
                 st.markdown("##### TOTAL - O.S CRÍTICAS PENDENTES")
-                # CORREÇÃO DA QUEDA: Variável 'Criticas' agora está sem acento, casando com a agregação do pandas!
                 fig_crit = px.area(df_hist_agrupado, x='Data', y='Criticas', color_discrete_sequence=['#a9d18e'])
                 fig_crit.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
                 st.plotly_chart(fig_crit, use_container_width=True)
@@ -862,13 +806,3 @@ with tab_historico:
             st.plotly_chart(fig_tma_mes_chart, use_container_width=True)
         else:
             st.info("📊 Aguardando dados de encerramento para consolidar a barra inferior.")
-
-    # Contentor 6 (Largura Total): FOTO DA DISPONIBILIDADE
-    if not df_curva_fila.empty:
-        with st.container(border=True):
-            st.markdown("##### FOTO HISTÓRICA DA TAXA DE DISPONIBILIDADE")
-            fig_disp = px.line(df_hist_agrupado, x='Data', y='Taxa_Disp', markers=True, color_discrete_sequence=['#154899'])
-            fig_disp.update_traces(fill='tozeroy', fillcolor='rgba(21, 72, 153, 0.2)')
-            fig_disp.add_hline(y=95, line_dash="dash", line_color="green", annotation_text="Meta 95%", annotation_position="bottom right")
-            fig_disp.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0), yaxis_title="Disponibilidade (%)")
-            st.plotly_chart(fig_disp, use_container_width=True)
