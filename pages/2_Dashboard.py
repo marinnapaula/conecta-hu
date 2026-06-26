@@ -566,7 +566,7 @@ with tab_financeiro:
 # TAB 8: HISTÓRICO GERAL (O ESPELHO FIEL DO POWER BI)
 # =====================================================================
 with tab_historico:
-    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico Retroativo (Fila e Desempenho)</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico </h3>", unsafe_allow_html=True)
     
     # Processamento Dinâmico de Dados de Backlog (Para preencher as caixas sem quebrar)
     df_hist_agrupado = pd.DataFrame()
