@@ -68,13 +68,11 @@ def categorizar_faixa(dias):
 
 def gerar_curva_backlog():
     caminho_pasta = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
-    # Usa a função blindada que já lê tudo
     arquivos = get_arquivos(caminho_pasta) 
     lista_dfs = []
     
     for arq in arquivos:
         try:
-            # O BO DO SNAPSHOT RESOLVIDO: Tenta pegar do nome, se falhar, pega a data do arquivo físico!
             data_ref = extrair_data_do_nome(os.path.basename(arq))
             if not data_ref:
                 data_ref = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
@@ -89,10 +87,29 @@ def gerar_curva_backlog():
             c_critico = 'CRITICO' if 'CRITICO' in df.columns else None
             
             if c_os and c_abert:
-                df['DT_ABERTURA'] = pd.to_datetime(df[c_abert].astype(str).str.split(',').str[-1].str.strip(), dayfirst=True, errors='coerce')
-                df = df.dropna(subset=['DT_ABERTURA'])
+                # -----------------------------------------------------------
+                # O BO DAS DATAS (1970 GHOSTS): DUPLO PARSER COM SANIDADE
+                # -----------------------------------------------------------
+                raw_dates = df[c_abert].copy()
+                str_dates = raw_dates.astype(str).str.split(',').str[-1].str.strip()
                 
+                # 1. Tenta parsear como texto (ex: 20/05/2026)
+                datas_texto = pd.to_datetime(str_dates, errors='coerce', dayfirst=True)
+                
+                # 2. Tenta parsear como número (Excel Serial: 45200.0)
+                numeros = pd.to_numeric(raw_dates, errors='coerce')
+                datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
+                
+                # Funde os dois métodos
+                df['DT_ABERTURA'] = datas_texto.fillna(datas_excel)
                 df['DT_SNAP'] = data_ref
+                
+                # 3. FILTRO DE SANIDADE MATEMÁTICA: 
+                # Corta datas nulas, datas de 1970 (erros) e datas impossíveis no futuro
+                df = df.dropna(subset=['DT_ABERTURA'])
+                df = df[(df['DT_ABERTURA'].dt.year >= 2015) & (df['DT_ABERTURA'] <= df['DT_SNAP'])]
+                
+                # Agora sim, calcula os dias de forma limpa!
                 df['DIAS_ABERTO'] = (df['DT_SNAP'] - df['DT_ABERTURA']).dt.days
                 df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
                 
@@ -108,7 +125,7 @@ def gerar_curva_backlog():
     
     df_final = pd.concat(lista_dfs, ignore_index=True)
     
-    # 1. Agrupa o Volume por Faixa de Dias (Gráfico Área Empilhada)
+    # 1. Agrupa o Volume por Faixa de Dias (Gráfico Área Sobreposta)
     df_counts = df_final.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
     
     ordem_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
