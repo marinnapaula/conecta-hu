@@ -104,21 +104,34 @@ def gerar_curva_backlog():
             df = ler_arquivo_gets(arq, colunas_alvo)
             if df.empty: continue
             
-            # Renomeia para o padrão
-            mapping = {c: MAPA_COLUNAS_UNIVERSAL[c] for c in df.columns if c in MAPA_COLUNAS_UNIVERSAL}
-            df = df.rename(columns=mapping)
+            df = df.rename(columns=MAPA_COLUNAS_UNIVERSAL)
             
             c_os = 'O.S.' if 'O.S.' in df.columns else None
             c_abert = 'ABERTURA' if 'ABERTURA' in df.columns else None
             
             if not (c_os and c_abert): continue
                 
-            df['DT_ABERTURA'] = df[c_abert].apply(parse_data_mista)
+            # BLINDAGEM SUPREMA DE DATA: Extrai apenas os primeiros 10 caracteres (DD/MM/YYYY)
+            raw_dates = df[c_abert].astype(str).str.split(',').str[-1].str.strip()
+            just_date = raw_dates.str.slice(0, 10)
+            
+            # Força o formato brasileiro puro, evitando picos fantasmas de meses invertidos
+            datas_texto = pd.to_datetime(just_date, format='%d/%m/%Y', errors='coerce')
+            numeros = pd.to_numeric(raw_dates, errors='coerce')
+            datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
+            
+            df['DT_ABERTURA'] = datas_texto.fillna(datas_excel)
             df = df.dropna(subset=['DT_ABERTURA'])
-            df = df[(df['DT_ABERTURA'].dt.year >= 2010) & (df['DT_ABERTURA'] <= data_ref)]
+            
+            # Filtro de segurança cronológica interna do arquivo
+            df = df[(df['DT_ABERTURA'].dt.year >= 2018) & (df['DT_ABERTURA'] <= data_ref)]
             if df.empty: continue
             
+            # Calcula a idade exata de cada O.S. com base no dia DESTE relatório
             df['DIAS_ABERTO'] = (data_ref - df['DT_ABERTURA']).dt.days
+            df = df[df['DIAS_ABERTO'] >= 0]
+            if df.empty: continue
+            
             df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
             
             c_critico = 'CRITICO' if 'CRITICO' in df.columns else None
@@ -141,10 +154,7 @@ def gerar_curva_backlog():
         except: continue
             
     if not lista_dfs: return pd.DataFrame()
-    
-    # AGORA DEVOLVE A BASE BRUTA! O Dashboard fará os agrupamentos dinâmicos.
-    df_final = pd.concat(lista_dfs, ignore_index=True)
-    return df_final
+    return pd.concat(lista_dfs, ignore_index=True)
 
 # =====================================================================
 # 3. INGESTÃO DE DADOS E CRUZAMENTO COM INVENTÁRIO (BLINDADO)
