@@ -82,71 +82,68 @@ def parse_data_mista(val):
 def gerar_curva_backlog():
     caminho_pasta = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
     arquivos = get_arquivos(caminho_pasta) 
-    lista_metricas_por_arquivo = []
+    lista_dfs = []
     
+    colunas_alvo = ['O.S.', 'N.º O.S.', 'OS', 'CHAMADO', 'ABERTURA', 'DATA ABERTURA', 'CRITICO', 'EQUIPAMENTO CRÍTICO', 'PARADO', 'EQUIPAMENTO PARADO', 'LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO', 'SETOR', 'DESCRIÇÃO', 'EQUIPAMENTO', 'TIPO EQUIPAMENTO']
+    
+    dicionario_setores = {
+        "BC": "BLOCO CIRÚRGICO", "BLOCO CIRURGICO": "BLOCO CIRÚRGICO",
+        "UTI": "UNIDADE DE TERAPIA INTENSIVA", "CC": "CLÍNICA CIRÚRGICA",
+        "CLINICA CIRURGICA": "CLÍNICA CIRÚRGICA", "CM": "CLÍNICA MÉDICA",
+        "CLINICA MEDICA": "CLÍNICA MÉDICA", "CME": "CME",
+        "CO": "CENTRO OBSTÉTRICO", "HU-00364": "NÃO IDENTIFICADO",
+        "NAN": "NÃO INFORMADO", "NONE": "NÃO INFORMADO"
+    }
+
     for arq in arquivos:
         try:
             data_ref = extrair_data_do_nome(os.path.basename(arq))
             if not data_ref:
                 data_ref = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
             
-            df = ler_arquivo_gets(arq, ['O.S.', 'N.º O.S.', 'OS', 'CHAMADO'])
+            df = ler_arquivo_gets(arq, colunas_alvo)
             if df.empty: continue
             
-            df = df.rename(columns=MAPA_COLUNAS_UNIVERSAL)
+            # Renomeia para o padrão
+            mapping = {c: MAPA_COLUNAS_UNIVERSAL[c] for c in df.columns if c in MAPA_COLUNAS_UNIVERSAL}
+            df = df.rename(columns=mapping)
             
             c_os = 'O.S.' if 'O.S.' in df.columns else None
             c_abert = 'ABERTURA' if 'ABERTURA' in df.columns else None
-            c_critico = 'CRITICO' if 'CRITICO' in df.columns else None
             
             if not (c_os and c_abert): continue
                 
-            # 1. Tratamento seguro da data para ESTE arquivo
             df['DT_ABERTURA'] = df[c_abert].apply(parse_data_mista)
             df = df.dropna(subset=['DT_ABERTURA'])
-            
-            # Filtro de sanidade: ignora datas absurdas
             df = df[(df['DT_ABERTURA'].dt.year >= 2010) & (df['DT_ABERTURA'] <= data_ref)]
             if df.empty: continue
             
-            # 2. Cálculos individuais para ESTE arquivo
             df['DIAS_ABERTO'] = (data_ref - df['DT_ABERTURA']).dt.days
             df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
             
-            if c_critico:
-                df['IS_CRITICO'] = df[c_critico].astype(str).str.upper().str.strip() == 'SIM'
-            else:
-                df['IS_CRITICO'] = False
-                
-            # 3. Consolidação direta: tira a média e a soma EXATA do dia
-            tempo_medio = df['DIAS_ABERTO'].mean()
-            total_criticas = df['IS_CRITICO'].sum()
-            contagem_faixas = df['FAIXA_DIAS'].value_counts().to_dict()
+            c_critico = 'CRITICO' if 'CRITICO' in df.columns else None
+            df['IS_CRITICO'] = df[c_critico].astype(str).str.upper().str.strip() == 'SIM' if c_critico else False
             
-            # 4. Guarda o retrato do dia limpo
-            resultado = {
-                'Data': data_ref,
-                'Tempo Médio Aberta': tempo_medio,
-                'Críticas': total_criticas,
-                '0 a 5 dias': contagem_faixas.get('0 a 5 dias', 0),
-                '6 a 15 dias': contagem_faixas.get('6 a 15 dias', 0),
-                '16 a 30 dias': contagem_faixas.get('16 a 30 dias', 0),
-                '31 a 60 dias': contagem_faixas.get('31 a 60 dias', 0),
-                'Mais de 60 dias': contagem_faixas.get('Mais de 60 dias', 0)
-            }
-            lista_metricas_por_arquivo.append(resultado)
+            c_parado = next((c for c in ['EQUIPAMENTO PARADO', 'PARADO'] if c in df.columns), None)
+            df['IS_PARADO'] = df[c_parado].astype(str).str.upper().str.strip() == 'SIM' if c_parado else False
+
+            if 'LOCALIZAÇÃO FÍSICA' in df.columns:
+                df['LOCALIZAÇÃO FÍSICA'] = df['LOCALIZAÇÃO FÍSICA'].astype(str).str.upper().str.strip().replace(dicionario_setores)
+            else:
+                df['LOCALIZAÇÃO FÍSICA'] = 'NÃO INFORMADO'
+                
+            if 'DESCRIÇÃO' not in df.columns:
+                df['DESCRIÇÃO'] = 'NÃO INFORMADO'
+                
+            df['DT_SNAP'] = data_ref
+            lista_dfs.append(df[['DT_SNAP', 'FAIXA_DIAS', 'DIAS_ABERTO', 'IS_CRITICO', 'IS_PARADO', 'LOCALIZAÇÃO FÍSICA', 'DESCRIÇÃO', 'O.S.']])
             
         except: continue
             
-    if not lista_metricas_por_arquivo: return pd.DataFrame()
+    if not lista_dfs: return pd.DataFrame()
     
-    # Monta a tabela final unindo os retratos diários
-    df_final = pd.DataFrame(lista_metricas_por_arquivo)
-    
-    # Se houver duas planilhas no mesmo dia por acidente, tira a média delas para não duplicar dados
-    df_final = df_final.groupby('Data').mean().reset_index()
-    df_final = df_final.sort_values('Data')
-    
+    # AGORA DEVOLVE A BASE BRUTA! O Dashboard fará os agrupamentos dinâmicos.
+    df_final = pd.concat(lista_dfs, ignore_index=True)
     return df_final
 
 # =====================================================================
