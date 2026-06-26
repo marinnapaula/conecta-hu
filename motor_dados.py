@@ -10,7 +10,7 @@ from datetime import datetime
 # =====================================================================
 MAPA_COLUNAS_UNIVERSAL = {
     'N.º O.S.': 'O.S.', 'Nº O.S.': 'O.S.', 'N. O.S.': 'O.S.', 'OS': 'O.S.', 'ORDEM DE SERVIÇO': 'O.S.', 'CHAMADO': 'O.S.', 'NÚMERO DA OS': 'O.S.', 'NÚMERO DA O.S.': 'O.S.',
-    'DATA ABERTURA': 'ABERTURA', 'DATA DE ABERTURA': 'ABERTURA', 'CRIADO EM': 'ABERTURA', 'ABERTO EM': 'ABERTURA',
+    'ABERTURA': 'ABERTURA', 'DATA ABERTURA': 'ABERTURA', 'DATA DE ABERTURA': 'ABERTURA', 'CRIADO EM': 'ABERTURA', 'ABERTO EM': 'ABERTURA',
     'DATA ENCERRAMENTO': 'ENCERRAMENTO', 'DATA DE ENCERRAMENTO': 'ENCERRAMENTO', 'FECHAMENTO': 'ENCERRAMENTO', 'DATA CONCLUSÃO': 'ENCERRAMENTO', 'CONCLUÍDO EM': 'ENCERRAMENTO', 'DATA/HORA ENCERRAMENTO': 'ENCERRAMENTO',
     'TIPO MANUTENÇÃO': 'CLASSE', 'TIPO DA O.S.': 'CLASSE', 'TIPO DE MANUTENÇÃO': 'CLASSE',
     'PROGRAMA': 'PROGRAMA MP', 'TIPO DE PREVENTIVA': 'PROGRAMA MP',
@@ -45,6 +45,7 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
                     df = pd.read_csv(caminho_arq, skiprows=skip, sep=',', encoding='utf-8', low_memory=False)
 
             if not df.empty:
+                # O Python lê "Abertura" do seu Excel e transforma em "ABERTURA" para o sistema entender
                 df.columns = df.columns.astype(str).str.strip().str.upper()
                 if any(c in df.columns for c in colunas_alvo): return df
         except: continue
@@ -66,6 +67,18 @@ def categorizar_faixa(dias):
     if dias <= 60: return "31 a 60 dias"
     return "Mais de 60 dias"
 
+def parse_data_blindada(serie_datas):
+    """Super tradutor de datas: tenta 4 métodos em cascata para não perder nenhuma O.S."""
+    raw = serie_datas.astype(str).str.split(',').str[-1].str.strip()
+    raw_10 = raw.str.slice(0, 10) # Pega só o DD/MM/YYYY ignorando horas
+    
+    d1 = pd.to_datetime(raw_10, format='%d/%m/%Y', errors='coerce')
+    d2 = pd.to_datetime(raw_10, format='%Y-%m-%d', errors='coerce')
+    d3 = pd.to_datetime(pd.to_numeric(raw, errors='coerce'), origin='1899-12-30', unit='D', errors='coerce')
+    d4 = pd.to_datetime(raw, dayfirst=True, errors='coerce')
+    
+    return d1.fillna(d2).fillna(d3).fillna(d4)
+
 def gerar_curva_backlog():
     caminho_pasta = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
     arquivos = get_arquivos(caminho_pasta) 
@@ -82,10 +95,9 @@ def gerar_curva_backlog():
 
     for arq in arquivos:
         try:
-            # A REGRA DE OURO QUE FUNCIONAVA: Pega a data SOMENTE do nome do arquivo!
             data_ref = extrair_data_do_nome(os.path.basename(arq))
             if not data_ref: 
-                continue # Se não achou a data no nome, pula o arquivo para não contaminar a média!
+                continue 
             
             df = ler_arquivo_gets(arq, COLUNAS_BUSCA_OS)
             if df.empty: continue
@@ -96,8 +108,8 @@ def gerar_curva_backlog():
             
             if not (c_os and c_abert): continue
                 
-            # Tratamento da data de abertura idêntico ao código que você mandou (que funcionava!)
-            df['DT_ABERTURA'] = pd.to_datetime(df[c_abert].astype(str).str.split(',').str[-1].str.strip(), dayfirst=True, errors='coerce')
+            # Trata datas com o Super Tradutor
+            df['DT_ABERTURA'] = parse_data_blindada(df[c_abert])
             df = df.dropna(subset=['DT_ABERTURA'])
             
             # Trava: A O.S. tem que ter sido aberta ANTES ou NO MESMO DIA do relatório (snapshot)
@@ -106,7 +118,9 @@ def gerar_curva_backlog():
             
             # Calcula os dias EXATOS que a O.S estava aberta naquele relatório!
             df['DIAS_ABERTO'] = (data_ref - df['DT_ABERTURA']).dt.days
-            df = df[df['DIAS_ABERTO'] >= 0]
+            
+            # A VERDADE NUA E CRUA: Mostra todos os "zumbis" reais, cortando apenas datas negativas
+            df = df[(df['DIAS_ABERTO'] >= 0)]
             if df.empty: continue
             
             df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
