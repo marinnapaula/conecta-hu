@@ -599,7 +599,7 @@ with tab_historico:
 
     # GRÁFICO 1: FOTO HISTÓRICA DA TAXA DE DISPONIBILIDADE
     with st.container(border=True):
-        st.markdown("##### FOTO HISTÓRICA DA TAXA DE DISPONIBILIDADE")
+        st.markdown("##### HISTÓRICO - TAXA DE DISPONIBILIDADE")
         if not df_hist_agrupado.empty and 'Taxa_Disp' in df_hist_agrupado.columns:
             fig_disp = px.line(df_hist_agrupado, x='Data', y='Taxa_Disp', markers=True, color_discrete_sequence=['#154899'])
             fig_disp.update_traces(fill='tozeroy', fillcolor='rgba(21, 72, 153, 0.2)')
