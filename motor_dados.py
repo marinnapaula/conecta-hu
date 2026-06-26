@@ -68,21 +68,25 @@ def categorizar_faixa(dias):
 
 def gerar_curva_backlog():
     caminho_pasta = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
-    arquivos = glob.glob(os.path.join(caminho_pasta, "RelOSsPendentes*.*"))
+    # Usa a função blindada que já lê tudo
+    arquivos = get_arquivos(caminho_pasta) 
     lista_dfs = []
     
     for arq in arquivos:
-        if not arq.lower().endswith(('.xlsx', '.xls', '.csv')): continue
         try:
+            # O BO DO SNAPSHOT RESOLVIDO: Tenta pegar do nome, se falhar, pega a data do arquivo físico!
             data_ref = extrair_data_do_nome(os.path.basename(arq))
-            if not data_ref: continue
+            if not data_ref:
+                data_ref = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
             
-            df = pd.read_excel(arq, dtype=str, engine='openpyxl' if arq.endswith('x') else 'xlrd') if not arq.endswith('.csv') else pd.read_csv(arq, sep=None, engine='python', dtype=str, encoding='latin1')
-            df.columns = df.columns.str.strip().str.upper()
+            df = ler_arquivo_gets(arq, ['O.S.', 'N.º O.S.', 'OS', 'CHAMADO'])
+            if df.empty: continue
             
-            c_os = next((c for c in df.columns if 'O.S.' in c or 'OS' in c), None)
-            c_abert = next((c for c in df.columns if 'ABERTURA' in c), None)
-            c_critico = next((c for c in df.columns if 'CRITICO' in c or 'CRÍTICO' in c), None)
+            df = df.rename(columns=MAPA_COLUNAS_UNIVERSAL)
+            
+            c_os = 'O.S.' if 'O.S.' in df.columns else None
+            c_abert = 'ABERTURA' if 'ABERTURA' in df.columns else None
+            c_critico = 'CRITICO' if 'CRITICO' in df.columns else None
             
             if c_os and c_abert:
                 df['DT_ABERTURA'] = pd.to_datetime(df[c_abert].astype(str).str.split(',').str[-1].str.strip(), dayfirst=True, errors='coerce')
@@ -104,25 +108,26 @@ def gerar_curva_backlog():
     
     df_final = pd.concat(lista_dfs, ignore_index=True)
     
-    # 1. Montagem da matriz de faixas etárias de O.S. (Pivot)
+    # 1. Agrupa o Volume por Faixa de Dias (Gráfico Área Empilhada)
     df_counts = df_final.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
     
-    # Assegura a integridade estrutural das colunas mesmo se alguma faixa estiver zerada no dia
     ordem_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
     for faixa in ordem_faixas:
         if faixa not in df_counts.columns:
             df_counts[faixa] = 0
     df_counts = df_counts[ordem_faixas]
     
-    # 2. Consolidação de médias de dias abertos e somatório de ativos críticos
+    # 2. Calcula Tempo Médio e Total de Críticas
     df_metrics = df_final.groupby('DT_SNAP').agg(
         Tempo_Medio_Aberta=('DIAS_ABERTO', 'mean'),
         Criticas=('IS_CRITICO', 'sum')
     )
     
-    # 3. Junção final e renomeação de colunas compatível com o Grid do Dashboard
     df_res = pd.merge(df_counts, df_metrics, on='DT_SNAP').reset_index()
     df_res = df_res.rename(columns={'DT_SNAP': 'Data', 'Tempo_Medio_Aberta': 'Tempo Médio Aberta', 'Criticas': 'Críticas'})
+    
+    # GARANTE A ORDEM CRONOLÓGICA DOS GRÁFICOS
+    df_res = df_res.sort_values('Data') 
     
     return df_res
 
