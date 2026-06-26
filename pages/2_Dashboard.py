@@ -688,56 +688,55 @@ with tab_financeiro:
 with tab_historico:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico Retroativo (Fila e Desempenho)</h3>", unsafe_allow_html=True)
     
-    # --- DEFINIÇÃO DA GRELHA DE CONTENTORES ---
+    # --- DEFINIÇÃO DA GRELHA DE CONTENTORES ORIGINAIS ---
     r1c1, r1c2 = st.columns(2)
     r2c1, r2c2 = st.columns(2)
 
-    # Processamento Dinâmico de Dados de Backlog (Responde aos Filtros!)
+    # Processamento Matemático por Arquivo Relatório (Snapshot)
     if not df_curva_fila.empty:
-        # Remover outliers absurdos que distorcem a média (ex: erros de digitação de 1970 ou tickets "esquecidos" de 10 anos atrás)
-        # Capamos para focar no fluxo ativo recente, assim como o BI faz naturalmente.
-        df_curva_limpa = df_curva_fila[df_curva_fila['DIAS_ABERTO'] < 730].copy()
         
-        # Agrupa os dados no momento baseando-se no filtro lateral ativo
-        df_counts = df_curva_limpa.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
+        # 1. Monta o volume diário por faixas etárias
+        df_counts = df_curva_fila.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
         ordem_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
         for faixa in ordem_faixas:
             if faixa not in df_counts.columns: df_counts[faixa] = 0
         df_counts = df_counts[ordem_faixas]
 
-        df_metrics = df_curva_limpa.groupby('DT_SNAP').agg(
+        # 2. Tira a média exata dos dias abertos de cada relatório específico daquele dia
+        df_metrics = df_curva_fila.groupby('DT_SNAP').agg(
             Tempo_Medio_Aberta=('DIAS_ABERTO', 'mean'),
             Criticas=('IS_CRITICO', 'sum'),
             Parados=('IS_PARADO', 'sum')
         )
 
+        # 3. Consolidação final da linha do tempo
         df_hist_agrupado = pd.merge(df_counts, df_metrics, on='DT_SNAP').reset_index()
         df_hist_agrupado = df_hist_agrupado.rename(columns={'DT_SNAP': 'Data'})
         df_hist_agrupado = df_hist_agrupado.sort_values('Data')
 
-        # CALCULA A DISPONIBILIDADE
+        # Cálculo de Disponibilidade Histórica com base no filtro
         total_ativos_filtro = len(df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']) if not df_inv.empty else 0
         if total_ativos_filtro > 0:
             df_hist_agrupado['Taxa_Disp'] = ((total_ativos_filtro - df_hist_agrupado['Parados']) / total_ativos_filtro) * 100
         else:
             df_hist_agrupado['Taxa_Disp'] = 0
 
-        # NOVO GRÁFICO: TAXA DE DISPONIBILIDADE GLOBAL HISTÓRICA (Ocupa o ecrã inteiro)
+        # GRÁFICO: FOTO HISTÓRICA DA TAXA DE DISPONIBILIDADE
         with st.container(border=True):
             st.markdown("##### FOTO HISTÓRICA DA TAXA DE DISPONIBILIDADE")
             fig_disp = px.line(df_hist_agrupado, x='Data', y='Taxa_Disp', markers=True, color_discrete_sequence=['#154899'])
             fig_disp.update_traces(fill='tozeroy', fillcolor='rgba(21, 72, 153, 0.2)')
             fig_disp.add_hline(y=95, line_dash="dash", line_color="green", annotation_text="Meta 95%", annotation_position="bottom right")
-            fig_disp.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0), yaxis_title="Disponibilidade (%)")
+            fig_disp.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0), yaxis_title="Disponibilidade (%)")
             st.plotly_chart(fig_disp, use_container_width=True)
 
-        # Gráfico: TOTAL O.S x FAIXA DE DIAS
+        # Gráfico: TOTAL O.S x FAIXA DE DIAS (Área Sobreposta Transparente)
         with r1c1:
             with st.container(border=True):
                 st.markdown("##### TOTAL O.S x FAIXA DE DIAS")
                 fig_faixa = go.Figure()
                 cores_linha = ['#7BB071', '#C85A5A', '#5C668A', '#E5B64E', '#83AEDB']
-                cores_fundo = ['rgba(123, 176, 113, 0.5)', 'rgba(200, 90, 90, 0.5)', 'rgba(92, 102, 138, 0.5)', 'rgba(229, 182, 78, 0.5)', 'rgba(131, 174, 219, 0.5)']
+                cores_fundo = ['rgba(123, 176, 113, 0.4)', 'rgba(200, 90, 90, 0.4)', 'rgba(92, 102, 138, 0.4)', 'rgba(229, 182, 78, 0.4)', 'rgba(131, 174, 219, 0.4)']
                 
                 for idx, col in enumerate(ordem_faixas):
                     if col in df_hist_agrupado.columns:
@@ -746,7 +745,7 @@ with tab_historico:
                 fig_faixa.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5), hovermode="x unified")
                 st.plotly_chart(fig_faixa, use_container_width=True)
 
-        # Gráfico: TEMPO MÉDIO - O.S PENDENTE ABERTA
+        # Gráfico: TEMPO MÉDIO - O.S PENDENTE ABERTA (Com Linha de Tendência Real)
         with r2c1:
             with st.container(border=True):
                 st.markdown("##### TEMPO MÉDIO - O.S PENDENTE ABERTA")
@@ -757,7 +756,7 @@ with tab_historico:
                     x_numeric = pd.to_numeric(df_tm_clean['Data'])
                     z = np.polyfit(x_numeric, df_tm_clean['Tempo_Medio_Aberta'], 1)
                     p = np.poly1d(z)
-                    fig_tm.add_trace(go.Scatter(x=df_tm_clean['Data'], y=p(x_numeric), mode='lines', line=dict(dash='dash', color='#2b2b2b', width=1.5), showlegend=False))
+                    fig_tm.add_trace(go.Scatter(x=df_tm_clean['Data'], y=p(x_numeric), mode='lines', line=dict(dash='dash', color='#2b2b2b', width=1.5), showlegend=False, hoverinfo='skip'))
                     
                 fig_tm.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
                 st.plotly_chart(fig_tm, use_container_width=True)
@@ -770,7 +769,7 @@ with tab_historico:
                 fig_crit.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
                 st.plotly_chart(fig_crit, use_container_width=True)
 
-    # Contentor (Linha 1 - Direita): TMA - HISTÓRICO
+    # Contentor (Linha 1 - Direita): TMA - HISTÓRICO ORIGINAL
     with r1c2:
         with st.container(border=True):
             st.markdown("##### TMA - HISTÓRICO")
