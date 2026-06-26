@@ -101,7 +101,7 @@ def gerar_curva_backlog():
     return df_final.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().reindex(idx, fill_value=0).reset_index(name='Volume')
 
 # =====================================================================
-# 3. INGESTÃO DE DADOS (MANUTENÇÃO DO SEU CÓDIGO ORIGINAL)
+# 3. INGESTÃO DE DADOS E CRUZAMENTO COM INVENTÁRIO
 # =====================================================================
 MAPA_COLUNAS_UNIVERSAL = {
     'N.º O.S.': 'O.S.', 'Nº O.S.': 'O.S.', 'N. O.S.': 'O.S.', 'OS': 'O.S.', 'ORDEM DE SERVIÇO': 'O.S.', 'CHAMADO': 'O.S.', 'NÚMERO DA OS': 'O.S.', 'NÚMERO DA O.S.': 'O.S.',
@@ -115,6 +115,64 @@ MAPA_COLUNAS_UNIVERSAL = {
 }
 COLUNAS_BUSCA_OS = list(MAPA_COLUNAS_UNIVERSAL.keys()) + ['O.S.', 'CRITICO', 'SNAPSHOT_DATE', 'SNAPSHOT_DT']
 
+def enriquecer_localizacao_os(df_os):
+    """Mágica de Dados: Puxa a localização do inventário e limpa a sujeira do texto."""
+    if df_os.empty: return df_os
+    
+    # 1. Carrega inventário sem causar loop
+    pasta_inv = "04.Inventário"
+    caminho_gets = os.path.join(os.getcwd(), "planilhas_gets")
+    if os.path.exists(caminho_gets):
+        for p in os.listdir(caminho_gets):
+            if "Invent" in p:
+                pasta_inv = p
+                break
+                
+    df_inv_bruto = carregar_mais_recente(pasta_inv)
+    
+    # 2. Cruza os dados se o inventário existir
+    if not df_inv_bruto.empty:
+        df_inv = limpar_dimensao_equipamentos(df_inv_bruto)
+        col_serie_os = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_os.columns), None)
+        col_id_os = next((c for c in ['IDENTIFICADOR', 'ID'] if c in df_os.columns), None)
+        
+        def gerar_key_os(row):
+            sn = str(row[col_serie_os]).strip().upper() if col_serie_os and pd.notna(row[col_serie_os]) else ''
+            id_val = str(row[col_id_os]).strip().upper() if col_id_os and pd.notna(row[col_id_os]) else ''
+            if sn and sn not in ['NAN', '']: return f"SN:{sn}"
+            if id_val and id_val not in ['NAN', '']: return f"ID:{id_val}"
+            return None
+            
+        df_os['EQUIP_KEY'] = df_os.apply(gerar_key_os, axis=1)
+        mapa_loc = df_inv.set_index('EQUIP_KEY')['LOCALIZAÇÃO FÍSICA'].to_dict()
+        
+        if 'LOCALIZAÇÃO FÍSICA' not in df_os.columns:
+            df_os['LOCALIZAÇÃO FÍSICA'] = 'NÃO INFORMADO'
+            
+        # Puxa do inventário. Se não achar, usa o que tinha na OS
+        df_os['LOCALIZAÇÃO FÍSICA'] = df_os['EQUIP_KEY'].map(mapa_loc).fillna(df_os['LOCALIZAÇÃO FÍSICA'])
+        
+    # 3. A Vassoura de Dados (Padronização final)
+    if 'LOCALIZAÇÃO FÍSICA' in df_os.columns:
+        df_os['LOCALIZAÇÃO FÍSICA'] = df_os['LOCALIZAÇÃO FÍSICA'].astype(str).str.upper().str.strip()
+        dicionario_setores = {
+            "BC": "BLOCO CIRÚRGICO",
+            "BLOCO CIRURGICO": "BLOCO CIRÚRGICO",
+            "UTI": "UNIDADE DE TERAPIA INTENSIVA",
+            "CC": "CLÍNICA CIRÚRGICA",
+            "CLINICA CIRURGICA": "CLÍNICA CIRÚRGICA",
+            "CM": "CLÍNICA MÉDICA",
+            "CLINICA MEDICA": "CLÍNICA MÉDICA",
+            "CME": "CME",
+            "CO": "CENTRO OBSTÉTRICO",
+            "HU-00364": "NÃO IDENTIFICADO",
+            "NAN": "NÃO INFORMADO",
+            "NONE": "NÃO INFORMADO"
+        }
+        df_os['LOCALIZAÇÃO FÍSICA'] = df_os['LOCALIZAÇÃO FÍSICA'].replace(dicionario_setores)
+        
+    return df_os
+
 def carregar_mais_recente(nome_pasta):
     pasta_alvo = os.path.join(os.getcwd(), "planilhas_gets", nome_pasta)
     arquivos = get_arquivos(pasta_alvo)
@@ -122,9 +180,15 @@ def carregar_mais_recente(nome_pasta):
     arq_recente = max(arquivos, key=os.path.getmtime)
     colunas = ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO'] if "Invent" in nome_pasta else COLUNAS_BUSCA_OS
     df = ler_arquivo_gets(arq_recente, colunas)
+    
     if not df.empty:
         df = df.rename(columns=MAPA_COLUNAS_UNIVERSAL)
         df['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq_recente), unit='s')
+        
+        # Intercepta as Ordens de Serviço para enriquecer a localização
+        if "Invent" not in nome_pasta and 'O.S.' in df.columns:
+            df = enriquecer_localizacao_os(df)
+            
     return df
 
 def carregar_os_encerradas():
@@ -166,6 +230,10 @@ def carregar_os_encerradas():
         df_final = df_final.sort_values(by='REPORT_CREATED_AT', ascending=False)
         
     df_final = df_final.drop_duplicates(subset=['OS_KEY'], keep='first')
+    
+    # Enriquecimento de Localização para as OS Encerradas também!
+    df_final = enriquecer_localizacao_os(df_final)
+    
     return df_final
 
 def carregar_todas_atividades(nome_pasta="03.Atividades"):
@@ -195,10 +263,10 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
         
     df_final = df_final.drop_duplicates()
 
-    # --- NOVO: BLINDAGEM DE DATAS NA ATIVIDADE ---
+    # --- BLINDAGEM DE DATAS NA ATIVIDADE ---
     for col in df_final.columns:
         if any(palavra in col for palavra in ['ATUALIZA', 'DATA', 'CRIADO', 'ABERTURA', 'ENCERRAMENTO']):
-            # Força string, corta textos indesejados (ex: "quinta-feira, ") e converte com dayfirst=True
+            # Força string, corta textos indesejados e converte com dayfirst=True
             df_final[col] = pd.to_datetime(df_final[col].astype(str).str.split(',').str[-1].str.strip(), errors='coerce', dayfirst=True)
 
     return df_final
