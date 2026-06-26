@@ -10,7 +10,7 @@ from datetime import datetime
 # =====================================================================
 MAPA_COLUNAS_UNIVERSAL = {
     'N.º O.S.': 'O.S.', 'Nº O.S.': 'O.S.', 'N. O.S.': 'O.S.', 'OS': 'O.S.', 'ORDEM DE SERVIÇO': 'O.S.', 'CHAMADO': 'O.S.', 'NÚMERO DA OS': 'O.S.', 'NÚMERO DA O.S.': 'O.S.',
-    'DATA ABERTURA': 'ABERTURA', 'DATA DE ABERTURA': 'ABERTURA', 'CRIADO EM': 'ABERTURA', 'ABERTO EM': 'ABERTURA',
+    'ABERTURA': 'ABERTURA', 'DATA ABERTURA': 'ABERTURA', 'DATA DE ABERTURA': 'ABERTURA', 'CRIADO EM': 'ABERTURA', 'ABERTO EM': 'ABERTURA',
     'DATA ENCERRAMENTO': 'ENCERRAMENTO', 'DATA DE ENCERRAMENTO': 'ENCERRAMENTO', 'FECHAMENTO': 'ENCERRAMENTO', 'DATA CONCLUSÃO': 'ENCERRAMENTO', 'CONCLUÍDO EM': 'ENCERRAMENTO', 'DATA/HORA ENCERRAMENTO': 'ENCERRAMENTO',
     'TIPO MANUTENÇÃO': 'CLASSE', 'TIPO DA O.S.': 'CLASSE', 'TIPO DE MANUTENÇÃO': 'CLASSE',
     'PROGRAMA': 'PROGRAMA MP', 'TIPO DE PREVENTIVA': 'PROGRAMA MP',
@@ -45,6 +45,7 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
                     df = pd.read_csv(caminho_arq, skiprows=skip, sep=',', encoding='utf-8', low_memory=False)
 
             if not df.empty:
+                # O Python lê "Abertura" do seu Excel e transforma em "ABERTURA" para o sistema entender
                 df.columns = df.columns.astype(str).str.strip().str.upper()
                 if any(c in df.columns for c in colunas_alvo): return df
         except: continue
@@ -107,7 +108,7 @@ def gerar_curva_backlog():
             
             if not (c_os and c_abert): continue
                 
-            # CORREÇÃO CIRÚRGICA: Trata datas com o Super Tradutor
+            # Trata datas com o Super Tradutor
             df['DT_ABERTURA'] = parse_data_blindada(df[c_abert])
             df = df.dropna(subset=['DT_ABERTURA'])
             
@@ -118,8 +119,8 @@ def gerar_curva_backlog():
             # Calcula os dias EXATOS que a O.S estava aberta naquele relatório!
             df['DIAS_ABERTO'] = (data_ref - df['DT_ABERTURA']).dt.days
             
-            # MATANDO OS PICOS ABSURDOS: Ignora O.S com dias negativos ou abertas há mais de 2 anos (730 dias)
-            df = df[(df['DIAS_ABERTO'] >= 0) & (df['DIAS_ABERTO'] < 730)]
+            # A VERDADE NUA E CRUA: Mostra todos os "zumbis" reais, cortando apenas datas negativas
+            df = df[(df['DIAS_ABERTO'] >= 0)]
             if df.empty: continue
             
             df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
