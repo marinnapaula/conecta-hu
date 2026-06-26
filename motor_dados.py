@@ -82,10 +82,10 @@ def gerar_curva_backlog():
 
     for arq in arquivos:
         try:
-            # A REGRA DE OURO QUE FUNCIONAVA: Pega a data SOMENTE do nome do arquivo!
+            # A REGRA DE OURO: Pega a data SOMENTE do nome do arquivo!
             data_ref = extrair_data_do_nome(os.path.basename(arq))
             if not data_ref: 
-                continue # Se não achou a data no nome, pula o arquivo para não contaminar a média!
+                continue 
             
             df = ler_arquivo_gets(arq, COLUNAS_BUSCA_OS)
             if df.empty: continue
@@ -96,8 +96,12 @@ def gerar_curva_backlog():
             
             if not (c_os and c_abert): continue
                 
-            # Tratamento da data de abertura idêntico ao código que você mandou (que funcionava!)
-            df['DT_ABERTURA'] = pd.to_datetime(df[c_abert].astype(str).str.split(',').str[-1].str.strip(), dayfirst=True, errors='coerce')
+            # CORREÇÃO CIRÚRGICA: Trata datas em texto e em formato Excel Serial (ex: 45200.0)
+            raw_dates = df[c_abert].astype(str).str.split(',').str[-1].str.strip()
+            datas_texto = pd.to_datetime(raw_dates, errors='coerce', dayfirst=True)
+            datas_excel = pd.to_datetime(pd.to_numeric(raw_dates, errors='coerce'), origin='1899-12-30', unit='D', errors='coerce')
+            
+            df['DT_ABERTURA'] = datas_texto.fillna(datas_excel)
             df = df.dropna(subset=['DT_ABERTURA'])
             
             # Trava: A O.S. tem que ter sido aberta ANTES ou NO MESMO DIA do relatório (snapshot)
@@ -106,7 +110,9 @@ def gerar_curva_backlog():
             
             # Calcula os dias EXATOS que a O.S estava aberta naquele relatório!
             df['DIAS_ABERTO'] = (data_ref - df['DT_ABERTURA']).dt.days
-            df = df[df['DIAS_ABERTO'] >= 0]
+            
+            # MATANDO OS PICOS ABSURDOS: Ignora O.S com dias negativos ou abertas há mais de 5 anos (outliers)
+            df = df[(df['DIAS_ABERTO'] >= 0) & (df['DIAS_ABERTO'] < 1825)]
             if df.empty: continue
             
             df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
