@@ -49,7 +49,7 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
     return pd.DataFrame()
 
 # =====================================================================
-# 2. LÓGICA DE HISTÓRICO (FAIXA DE DIAS E MÉTRICAS ACUMULADAS)
+# 2. LÓGICA DE HISTÓRICO (CÁLCULO INDIVIDUAL POR ARQUIVO)
 # =====================================================================
 def extrair_data_do_nome(nome_arquivo):
     match = re.search(r'RelOSsPendentes(\d{4})(\d{2})(\d{2})', nome_arquivo)
@@ -66,10 +66,23 @@ def categorizar_faixa(dias):
     if dias <= 60: return "31 a 60 dias"
     return "Mais de 60 dias"
 
+def parse_data_mista(val):
+    """Garante que a data seja lida, não importa como o Excel exportou."""
+    if pd.isna(val): return pd.NaT
+    val_str = str(val).split(',')[-1].strip()
+    try:
+        # Se veio como número serial do Excel (ex: 45200.0)
+        if val_str.replace('.', '', 1).isdigit():
+            return pd.to_datetime(float(val_str), origin='1899-12-30', unit='D')
+        # Se veio como texto (ex: 20/05/2026)
+        return pd.to_datetime(val_str, dayfirst=True)
+    except:
+        return pd.NaT
+
 def gerar_curva_backlog():
     caminho_pasta = os.path.join(os.getcwd(), "planilhas_gets", "02.OS_Pendentes")
     arquivos = get_arquivos(caminho_pasta) 
-    lista_dfs = []
+    lista_metricas_por_arquivo = []
     
     for arq in arquivos:
         try:
@@ -86,67 +99,55 @@ def gerar_curva_backlog():
             c_abert = 'ABERTURA' if 'ABERTURA' in df.columns else None
             c_critico = 'CRITICO' if 'CRITICO' in df.columns else None
             
-            if c_os and c_abert:
-                # -----------------------------------------------------------
-                # O BO DAS DATAS (1970 GHOSTS): DUPLO PARSER COM SANIDADE
-                # -----------------------------------------------------------
-                raw_dates = df[c_abert].copy()
-                str_dates = raw_dates.astype(str).str.split(',').str[-1].str.strip()
+            if not (c_os and c_abert): continue
                 
-                # 1. Tenta parsear como texto (ex: 20/05/2026)
-                datas_texto = pd.to_datetime(str_dates, errors='coerce', dayfirst=True)
+            # 1. Tratamento seguro da data para ESTE arquivo
+            df['DT_ABERTURA'] = df[c_abert].apply(parse_data_mista)
+            df = df.dropna(subset=['DT_ABERTURA'])
+            
+            # Filtro de sanidade: ignora datas absurdas
+            df = df[(df['DT_ABERTURA'].dt.year >= 2010) & (df['DT_ABERTURA'] <= data_ref)]
+            if df.empty: continue
+            
+            # 2. Cálculos individuais para ESTE arquivo
+            df['DIAS_ABERTO'] = (data_ref - df['DT_ABERTURA']).dt.days
+            df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
+            
+            if c_critico:
+                df['IS_CRITICO'] = df[c_critico].astype(str).str.upper().str.strip() == 'SIM'
+            else:
+                df['IS_CRITICO'] = False
                 
-                # 2. Tenta parsear como número (Excel Serial: 45200.0)
-                numeros = pd.to_numeric(raw_dates, errors='coerce')
-                datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
-                
-                # Funde os dois métodos
-                df['DT_ABERTURA'] = datas_texto.fillna(datas_excel)
-                df['DT_SNAP'] = data_ref
-                
-                # 3. FILTRO DE SANIDADE MATEMÁTICA: 
-                # Corta datas nulas, datas de 1970 (erros) e datas impossíveis no futuro
-                df = df.dropna(subset=['DT_ABERTURA'])
-                df = df[(df['DT_ABERTURA'].dt.year >= 2015) & (df['DT_ABERTURA'] <= df['DT_SNAP'])]
-                
-                # Agora sim, calcula os dias de forma limpa!
-                df['DIAS_ABERTO'] = (df['DT_SNAP'] - df['DT_ABERTURA']).dt.days
-                df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
-                
-                if c_critico:
-                    df['IS_CRITICO'] = df[c_critico].astype(str).str.upper().str.strip() == 'SIM'
-                else:
-                    df['IS_CRITICO'] = False
-                    
-                lista_dfs.append(df[['DT_SNAP', 'FAIXA_DIAS', 'DIAS_ABERTO', 'IS_CRITICO', c_os]])
+            # 3. Consolidação direta: tira a média e a soma EXATA do dia
+            tempo_medio = df['DIAS_ABERTO'].mean()
+            total_criticas = df['IS_CRITICO'].sum()
+            contagem_faixas = df['FAIXA_DIAS'].value_counts().to_dict()
+            
+            # 4. Guarda o retrato do dia limpo
+            resultado = {
+                'Data': data_ref,
+                'Tempo Médio Aberta': tempo_medio,
+                'Críticas': total_criticas,
+                '0 a 5 dias': contagem_faixas.get('0 a 5 dias', 0),
+                '6 a 15 dias': contagem_faixas.get('6 a 15 dias', 0),
+                '16 a 30 dias': contagem_faixas.get('16 a 30 dias', 0),
+                '31 a 60 dias': contagem_faixas.get('31 a 60 dias', 0),
+                'Mais de 60 dias': contagem_faixas.get('Mais de 60 dias', 0)
+            }
+            lista_metricas_por_arquivo.append(resultado)
+            
         except: continue
             
-    if not lista_dfs: return pd.DataFrame()
+    if not lista_metricas_por_arquivo: return pd.DataFrame()
     
-    df_final = pd.concat(lista_dfs, ignore_index=True)
+    # Monta a tabela final unindo os retratos diários
+    df_final = pd.DataFrame(lista_metricas_por_arquivo)
     
-    # 1. Agrupa o Volume por Faixa de Dias (Gráfico Área Sobreposta)
-    df_counts = df_final.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
+    # Se houver duas planilhas no mesmo dia por acidente, tira a média delas para não duplicar dados
+    df_final = df_final.groupby('Data').mean().reset_index()
+    df_final = df_final.sort_values('Data')
     
-    ordem_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
-    for faixa in ordem_faixas:
-        if faixa not in df_counts.columns:
-            df_counts[faixa] = 0
-    df_counts = df_counts[ordem_faixas]
-    
-    # 2. Calcula Tempo Médio e Total de Críticas
-    df_metrics = df_final.groupby('DT_SNAP').agg(
-        Tempo_Medio_Aberta=('DIAS_ABERTO', 'mean'),
-        Criticas=('IS_CRITICO', 'sum')
-    )
-    
-    df_res = pd.merge(df_counts, df_metrics, on='DT_SNAP').reset_index()
-    df_res = df_res.rename(columns={'DT_SNAP': 'Data', 'Tempo_Medio_Aberta': 'Tempo Médio Aberta', 'Criticas': 'Críticas'})
-    
-    # GARANTE A ORDEM CRONOLÓGICA DOS GRÁFICOS
-    df_res = df_res.sort_values('Data') 
-    
-    return df_res
+    return df_final
 
 # =====================================================================
 # 3. INGESTÃO DE DADOS E CRUZAMENTO COM INVENTÁRIO (BLINDADO)
