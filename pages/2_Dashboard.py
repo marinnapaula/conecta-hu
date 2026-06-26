@@ -113,9 +113,14 @@ aplicar_filtro_tipo = len(filtro_tipo) > 0 and len(filtro_tipo) < len(tipos_disp
 if aplicar_filtro_local and not df_inv.empty: df_inv = df_inv[df_inv['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
 if aplicar_filtro_tipo and not df_inv.empty: df_inv = df_inv[df_inv['DESCRIÇÃO'].isin(filtro_tipo)]
 
-# O Filtro do Backlog Histórico agora aplica apenas DATA, para não quebrar a agregação do motor.
-if not df_curva_fila.empty and 'Data' in df_curva_fila.columns:
-    df_curva_fila = df_curva_fila[(df_curva_fila['Data'].dt.year >= ano_inicio) & (df_curva_fila['Data'].dt.year <= ano_fim)]
+# O Filtro do Histórico agora respeita o setor, o tipo de equipamento e a data corretamente
+if not df_curva_fila.empty:
+    if aplicar_filtro_local and 'LOCALIZAÇÃO FÍSICA' in df_curva_fila.columns: 
+        df_curva_fila = df_curva_fila[df_curva_fila['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
+    if aplicar_filtro_tipo and 'DESCRIÇÃO' in df_curva_fila.columns:  
+        df_curva_fila = df_curva_fila[df_curva_fila['DESCRIÇÃO'].isin(filtro_tipo)]
+    if 'DT_SNAP' in df_curva_fila.columns:
+        df_curva_fila = df_curva_fila[(df_curva_fila['DT_SNAP'].dt.year >= ano_inicio) & (df_curva_fila['DT_SNAP'].dt.year <= ano_fim)]
 
 if not df_pend_bruto.empty:
     df_pend = df_pend_bruto.copy()
@@ -171,7 +176,7 @@ tab_indicadores, tab_fila, tab_produtividade, tab_calor, tab_mapa, tab_parque, t
 ])
 
 # =====================================================================
-# TAB 1: INDICADORES (ESTRUTURA DE GRÁFICOS ESPELHADOS DO POWER BI)
+# TAB 1 A 7: (CÓDIGO INTACTO ORIGINAL)
 # =====================================================================
 with tab_indicadores:
     tma_g_12 = 0; tma_g_30 = 0; tma_mp_12 = 0; tma_mc_12 = 0
@@ -248,9 +253,6 @@ with tab_indicadores:
                     fig_tp.update_layout(height=230, margin=dict(l=0, r=0, t=10, b=0), showlegend=True)
                     st.plotly_chart(fig_tp, use_container_width=True)
 
-# =====================================================================
-# TAB 2: ACOMPANHAMENTO DE O.S. PENDENTES
-# =====================================================================
 with tab_fila:
     if not df_pend.empty:
         df_p = df_pend.copy()
@@ -293,77 +295,55 @@ with tab_fila:
         if f_eq_critico != "Todos" and col_critico: df_f = df_f[df_f[col_critico] == f_eq_critico]
 
         df_f = df_f.sort_values(by='DIAS_EM_ABERTO', ascending=False)
-
         st.markdown(f"**Registros Filtrados:** {len(df_f)} ordens pendentes localizadas.")
         colunas_grade = [c for c in [col_os, col_tipo, col_serie, col_local, 'DIAS_EM_ABERTO', col_estado, col_executor] if c in df_f.columns]
-        st.dataframe(
-            df_f[colunas_grade], use_container_width=True, hide_index=True, height=240,
-            column_config={
-                "DIAS_EM_ABERTO": st.column_config.ProgressColumn("Tempo de Espera", format="%d dias", min_value=0, max_value=int(df_p['DIAS_EM_ABERTO'].max()) if len(df_p) > 0 else 100),
-                col_os: st.column_config.TextColumn("Nº O.S.")
-            }
-        )
+        st.dataframe(df_f[colunas_grade], use_container_width=True, hide_index=True, height=240, column_config={"DIAS_EM_ABERTO": st.column_config.ProgressColumn("Tempo de Espera", format="%d dias", min_value=0, max_value=int(df_p['DIAS_EM_ABERTO'].max()) if len(df_p) > 0 else 100), col_os: st.column_config.TextColumn("Nº O.S.")})
 
         st.markdown("---")
         st.markdown("<h3 style='color: #154899;'>Detalhamento da O.S</h3>", unsafe_allow_html=True)
-        
         if not df_f.empty and col_os:
             os_alvo = st.selectbox("Escolha uma Ordem de Serviço da lista para abrir a ficha completa:", options=df_f[col_os].astype(str).unique())
-            
             if os_alvo:
                 dados_linha = df_f[df_f[col_os].astype(str) == os_alvo].iloc[0]
                 with st.container(border=True):
                     f_col_t, f_col_b1, f_col_b2 = st.columns([2, 1, 1])
                     f_col_t.markdown(f"#### Ficha de Atendimento - O.S. № {os_alvo}")
-                    
                     num_serie_real = dados_linha.get(col_serie, 'N/I')
                     num_pat_real = dados_linha.get('PATRIMÔNIO', dados_linha.get('IDENTIFICADOR', 'N/I'))
                     f_col_t.markdown(f"**Equipamento:** {dados_linha.get(col_tipo, 'N/I')} | **Nº Série:** {num_serie_real} | **Patrimônio:** {num_pat_real}")
-                    
                     p_status = "🔴 PARADO" if str(dados_linha.get(col_parado, '')).upper() == 'SIM' else "🟢 EM OPERAÇÃO"
                     c_status = "⚠️ ALTA CRITICIDADE" if str(dados_linha.get(col_critico, '')).upper() == 'SIM' else "ℹ️ CRITICIDADE NORMAL"
                     f_col_b1.markdown(f"**Disponibilidade:**<br>`{p_status}`", unsafe_allow_html=True)
                     f_col_b2.markdown(f"**Criticidade:**<br>`{c_status}`", unsafe_allow_html=True)
                     st.divider()
-                    
                     d1, d2, d3 = st.columns(3)
                     dt_ab_str = dados_linha[col_abertura].strftime('%d/%m/%Y') if pd.notnull(dados_linha.get(col_abertura)) else 'N/I'
-                    
                     d1.markdown(f"**📅 Abertura:** {dt_ab_str}")
                     d1.markdown(f"**⏳ Dias na Fila:** {dados_linha.get('DIAS_EM_ABERTO', 0)} dias")
                     d2.markdown(f"**📍 Localização:** {dados_linha.get(col_local, 'N/I')}")
                     d3.markdown(f"**⚙️ Status da O.S.:** {dados_linha.get(col_estado, 'N/I')}")
-                    
                     st.markdown("<br><h5 style='color: #32A347;'>Detalhamento Técnico</h5>", unsafe_allow_html=True)
-                    
                     if not df_atividades.empty:
                         df_at_temp = df_atividades.copy()
                         os_busca = str(os_alvo).replace('.0', '').strip()
-                        
                         df_historico_os = df_at_temp[df_at_temp['OS_KEY'] == os_busca] if 'OS_KEY' in df_at_temp.columns else pd.DataFrame()
-                        
                         if not df_historico_os.empty:
                             col_dt_inicio = get_col(df_historico_os, ['DATA INÍCIO', 'DATA INICIO', 'INÍCIO', 'INICIO', 'DATA DA EXECUÇÃO', 'DATA'])
                             col_atividade = get_col(df_historico_os, ['ATIVIDADE', 'ATIVIDADES', 'TIPO ATIVIDADE'])
                             col_servico = get_col(df_historico_os, ['SERVIÇO EXECUTADO', 'SERVICO EXECUTADO', 'SERVIÇO', 'DESCRIÇÃO', 'HISTÓRICO'])
                             col_exec_act = get_col(df_historico_os, ['EXECUTOR', 'TÉCNICO', 'RESPONSÁVEL', 'TECNICO'])
-                            
                             cols_print_act = [c for c in [col_dt_inicio, col_exec_act, col_atividade, col_servico] if c]
                             df_print_act = df_historico_os[cols_print_act].copy()
-                            
                             if col_dt_inicio:
                                 df_print_act[col_dt_inicio] = pd.to_datetime(df_print_act[col_dt_inicio], errors='coerce')
                                 df_print_act = df_print_act.sort_values(by=col_dt_inicio, ascending=False)
                                 df_print_act[col_dt_inicio] = df_print_act[col_dt_inicio].dt.strftime('%d/%m/%Y %H:%M')
-                                
                             config_colunas = {}
                             if col_dt_inicio: config_colunas[col_dt_inicio] = st.column_config.TextColumn("Atualização", width="medium")
                             if col_exec_act: config_colunas[col_exec_act] = st.column_config.TextColumn("Executor", width="medium")
                             if col_atividade: config_colunas[col_atividade] = st.column_config.TextColumn("Atividade", width="medium")
                             if col_servico: config_colunas[col_servico] = st.column_config.TextColumn("Serviço Executado", width="large")
-                                
                             st.dataframe(df_print_act, use_container_width=True, hide_index=True, column_config=config_colunas)
-                            
                             with st.expander("Ver textos de Serviços Executados completos"):
                                 for _, lista_row in df_print_act.iterrows():
                                     t_ini = lista_row.get(col_dt_inicio, 'N/I')
@@ -371,82 +351,52 @@ with tab_fila:
                                     t_txt = lista_row.get(col_servico, 'Sem descrição detalhada')
                                     st.markdown(f"**[{t_ini}] - Executor: {t_exec}**")
                                     st.info(t_txt)
-                        else:
-                            st.info("Esta O.S. está na fila aguardando o primeiro apontamento técnico.")
-                    else:
-                        st.info("Logs indisponíveis na pasta '03.Atividades'.")
-        else:
-            st.warning("Ajuste a busca para carregar as fichas técnicas.")
+                        else: st.info("Esta O.S. está na fila aguardando o primeiro apontamento técnico.")
+                    else: st.info("Logs indisponíveis na pasta '03.Atividades'.")
+        else: st.warning("Ajuste a busca para carregar as fichas técnicas.")
 
-# =====================================================================
-# TAB 3: PRODUTIVIDADE (FLUXO HISTÓRICO)
-# =====================================================================
 with tab_produtividade:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Produtividade</h3>", unsafe_allow_html=True)
-    
     if not df_enc.empty:
         col_abertura_e = get_col(df_enc, ['ABERTURA', 'DATA ABERTURA'])
         col_encerra_e = get_col(df_enc, ['ENCERRAMENTO', 'DATA ENCERRAMENTO'])
         col_os_e = get_col(df_enc, ['OS_KEY', 'O.S.', 'OS'])
         col_classe_e = get_col(df_enc, ['CLASSE', 'TIPO MANUTENÇÃO', 'TIPO DA O.S.'])
         col_prog_e = get_col(df_enc, ['PROGRAMA MP', 'PROGRAMA', 'TIPO DE PREVENTIVA'])
-        
         df_enc['text_year'] = df_enc[col_encerra_e].dt.year
         anos_disp = sorted(df_enc['text_year'].dropna().unique().astype(int).tolist(), reverse=True)
-        
         c_filtro_ano, _ = st.columns([1, 4])
         ano_filtro = c_filtro_ano.selectbox("Filtrar por Ano de Referência:", ["Todos os Anos"] + anos_disp)
-        
         df_prod = df_enc.copy()
-        if ano_filtro != "Todos os Anos":
-            df_prod = df_prod[df_prod['text_year'] == ano_filtro]
-        
+        if ano_filtro != "Todos os Anos": df_prod = df_prod[df_prod['text_year'] == ano_filtro]
         lista_aberturas = []
-        if col_abertura_e and col_os_e:
-            lista_aberturas.append(df_enc[[col_os_e, col_abertura_e]].rename(columns={col_os_e: 'OS', col_abertura_e: 'DATA'}))
-        
+        if col_abertura_e and col_os_e: lista_aberturas.append(df_enc[[col_os_e, col_abertura_e]].rename(columns={col_os_e: 'OS', col_abertura_e: 'DATA'}))
         col_abertura_p = get_col(df_pend, ['ABERTURA', 'DATA ABERTURA'])
         col_os_p = get_col(df_pend, ['OS_KEY', 'O.S.', 'OS', 'N.º O.S.'])
-        if col_abertura_p and col_os_p and not df_pend.empty:
-            lista_aberturas.append(df_pend[[col_os_p, col_abertura_p]].rename(columns={col_os_p: 'OS', col_abertura_p: 'DATA'}))
-        
+        if col_abertura_p and col_os_p and not df_pend.empty: lista_aberturas.append(df_pend[[col_os_p, col_abertura_p]].rename(columns={col_os_p: 'OS', col_abertura_p: 'DATA'}))
         if lista_aberturas:
             df_demanda_base = pd.concat(lista_aberturas).drop_duplicates('OS').dropna(subset=['DATA'])
             df_demanda_base['AnoMes'] = df_demanda_base['DATA'].dt.strftime('%Y-%m')
             df_demanda_agrup = df_demanda_base.groupby('AnoMes').size().reset_index(name='Demanda (Entradas)')
-        else:
-            df_demanda_agrup = pd.DataFrame(columns=['AnoMes', 'Demanda (Entradas)'])
-
+        else: df_demanda_agrup = pd.DataFrame(columns=['AnoMes', 'Demanda (Entradas)'])
         df_prod['AnoMes'] = df_prod[col_encerra_e].dt.strftime('%Y-%m')
         df_saida_agrup = df_prod.groupby('AnoMes').size().reset_index(name='Produção (Saídas)')
-        
         df_balanco = pd.merge(df_demanda_agrup, df_saida_agrup, on='AnoMes', how='outer').fillna(0).sort_values('AnoMes')
-        
-        if ano_filtro != "Todos os Anos":
-            df_balanco = df_balanco[df_balanco['AnoMes'].str.startswith(str(ano_filtro))]
-            
+        if ano_filtro != "Todos os Anos": df_balanco = df_balanco[df_balanco['AnoMes'].str.startswith(str(ano_filtro))]
         meses_pt = {'01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr', '05': 'Mai', '06': 'Jun', '07': 'Jul', '08': 'Ago', '09': 'Set', '10': 'Out', '11': 'Nov', '12': 'Dez'}
         def formatar_anomes(am):
             if pd.isna(am) or '-' not in str(am): return am
             ano, mes = str(am).split('-')
             return f"{meses_pt.get(mes, mes)} {ano}"
-        
         df_balanco['Mes_Label'] = df_balanco['AnoMes'].apply(formatar_anomes)
         df_prod['Mes_Label'] = df_prod['AnoMes'].apply(formatar_anomes)
-        
         with st.container(border=True):
             st.markdown("##### Entradas (Demandas) x Saídas (Produção Total)")
             fig_balanco = go.Figure()
             fig_balanco.add_trace(go.Bar(x=df_balanco['Mes_Label'], y=df_balanco['Demanda (Entradas)'], name='Demanda (Abertas)', marker_color='#70ad47'))
             fig_balanco.add_trace(go.Bar(x=df_balanco['Mes_Label'], y=df_balanco['Produção (Saídas)'], name='Total Entregas', marker_color='#44546a'))
-            
-            fig_balanco.update_layout(
-                barmode='group', height=350, margin=dict(l=0, r=0, t=10, b=0), 
-                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
-                xaxis=dict(type='category', tickangle=-45)
-            )
+            fig_balanco.update_layout(barmode='group', height=350, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5), xaxis=dict(type='category', tickangle=-45))
             st.plotly_chart(fig_balanco, use_container_width=True)
-        
         c_prod1, c_prod2 = st.columns(2)
         with c_prod1:
             with st.container(border=True):
@@ -455,18 +405,11 @@ with tab_produtividade:
                     df_prod['Classe_Norm'] = np.where(df_prod[col_classe_e].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA'), 'Manutenção Programada',
                                              np.where(df_prod[col_classe_e].astype(str).str.upper().str.contains('CORR|MC|QUEBRA'), 'Manutenção Corretiva',
                                              np.where(df_prod[col_classe_e].astype(str).str.upper().str.contains('INSTAL'), 'Instalação', 'Outras')))
-                                             
                     df_classe = df_prod.groupby(['AnoMes', 'Mes_Label', 'Classe_Norm']).size().reset_index(name='Qtd').sort_values('AnoMes')
                     fig_classe = px.bar(df_classe, x='Mes_Label', y='Qtd', color='Classe_Norm', color_discrete_sequence=['#44546a', '#eeb022', '#70ad47', '#a6a6a6'])
-                    fig_classe.update_layout(
-                        height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, 
-                        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-                        xaxis=dict(type='category', tickangle=-45), xaxis_title=None, yaxis_title="Qtd"
-                    )
+                    fig_classe.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5), xaxis=dict(type='category', tickangle=-45), xaxis_title=None, yaxis_title="Qtd")
                     st.plotly_chart(fig_classe, use_container_width=True)
-                else:
-                    st.info("Coluna de Classe não localizada.")
-                    
+                else: st.info("Coluna de Classe não localizada.")
         with c_prod2:
             with st.container(border=True):
                 st.markdown("##### Distribuição de Entregas x Tipo de Preventiva")
@@ -475,40 +418,24 @@ with tab_produtividade:
                     if not df_prev.empty:
                         df_prog = df_prev.groupby(['AnoMes', 'Mes_Label', col_prog_e]).size().reset_index(name='Qtd').sort_values('AnoMes')
                         fig_prog = px.bar(df_prog, x='Mes_Label', y='Qtd', color=col_prog_e, color_discrete_sequence=px.colors.qualitative.Safe)
-                        fig_prog.update_layout(
-                            height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, 
-                            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-                            xaxis=dict(type='category', tickangle=-45), xaxis_title=None, yaxis_title="Qtd"
-                        )
+                        fig_prog.update_layout(height=350, margin=dict(l=0, r=0, t=10, b=0), legend_title_text=None, legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5), xaxis=dict(type='category', tickangle=-45), xaxis_title=None, yaxis_title="Qtd")
                         st.plotly_chart(fig_prog, use_container_width=True)
-                    else:
-                        st.info("Não há entregas programadas registradas para o período.")
-                else:
-                    st.info("Coluna de Programa Preventivo não localizada nas Encerradas.")
-    else:
-        st.warning("Não há histórico de O.S. Encerradas para calcular a produtividade.")
+                    else: st.info("Não há entregas programadas registradas para o período.")
+                else: st.info("Coluna de Programa Preventivo não localizada nas Encerradas.")
+    else: st.warning("Não há histórico de O.S. Encerradas para calcular a produtividade.")
 
-# =====================================================================
-# TAB 4: MAPA DE CALOR (MATRIZ DE CONFORMIDADE)
-# =====================================================================
 with tab_calor:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Mapa de Calor de Manutenção Programada</h3>", unsafe_allow_html=True)
-    
     if not df_inv.empty:
         df_ativos = df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO'].copy()
-        
         col_selecao, _ = st.columns([1, 3])
         programa_selecionado = col_selecao.selectbox("Selecione o Programa de Manutenção:", ["PREVENTIVA", "CALIBRAÇÃO"])
-        
         col_status = f'Status {programa_selecionado}'
-        
         if col_status in df_ativos.columns:
             df_pivot = pd.crosstab(df_ativos['DESCRIÇÃO'], df_ativos[col_status])
-            
             colunas_ordenadas = ['NR', '+ 2a', '+ 1a', 'em 45d', 'em 3m', 'OK', 'Garantia/Novo']
             colunas_presentes = [c for c in colunas_ordenadas if c in df_pivot.columns]
             df_pivot = df_pivot[colunas_presentes]
-            
             def style_matrix(df):
                 styles = pd.DataFrame('', index=df.index, columns=df.columns)
                 for col in df.columns:
@@ -520,89 +447,54 @@ with tab_calor:
                     elif col == 'OK': styles[col] = np.where(df[col] > 0, 'background-color: #70AD47; color: white; font-weight: bold;', '')
                     elif col == 'Garantia/Novo': styles[col] = np.where(df[col] > 0, 'background-color: #8fa1b3; color: white; font-weight: bold;', '')
                 return styles
-
             st.dataframe(df_pivot.style.apply(style_matrix, axis=None).format(na_rep=""), use_container_width=True, height=400)
-            
             st.markdown("---")
             st.markdown("<h4 style='color: #32A347;'>Detalhamento do Mapa</h4>", unsafe_allow_html=True)
             st.write("Identificou um atraso na matriz acima? Selecione o equipamento e o status abaixo para puxar a lista de números de série.")
-            
             c_drill1, c_drill2 = st.columns(2)
             equip_drill = c_drill1.selectbox("Filtrar Equipamento:", ["Todos"] + list(df_pivot.index))
             status_drill = c_drill2.selectbox("Filtrar Status:", ["Todos"] + colunas_presentes)
-            
             df_drill = df_ativos.copy()
             if equip_drill != "Todos": df_drill = df_drill[df_drill['DESCRIÇÃO'] == equip_drill]
             if status_drill != "Todos": df_drill = df_drill[df_drill[col_status] == status_drill]
-            
             colunas_exibicao = ['DESCRIÇÃO', 'PATRIMÔNIO', 'N.º SÉRIE', 'LOCALIZAÇÃO FÍSICA', programa_selecionado]
             colunas_exibicao_limpas = [c for c in colunas_exibicao if c in df_drill.columns]
-            
             if not df_drill.empty:
-                if programa_selecionado in df_drill.columns:
-                    df_drill[programa_selecionado] = pd.to_datetime(df_drill[programa_selecionado], errors='coerce').dt.strftime('%d/%m/%Y')
-                
+                if programa_selecionado in df_drill.columns: df_drill[programa_selecionado] = pd.to_datetime(df_drill[programa_selecionado], errors='coerce').dt.strftime('%d/%m/%Y')
                 st.markdown(f"**Total de Equipamentos Encontrados:** {len(df_drill)}")
                 st.dataframe(df_drill[colunas_exibicao_limpas], use_container_width=True, hide_index=True)
-            else:
-                st.success("Nenhum equipamento encontrado com essa combinação de filtros. Tudo limpo!")
-        else:
-            st.info("A coluna de status deste programa ainda não foi processada.")
-    else:
-        st.warning("Inventário não carregado. Verifique os dados.")
+            else: st.success("Nenhum equipamento encontrado com essa combinação de filtros. Tudo limpo!")
+        else: st.info("A coluna de status deste programa ainda não foi processada.")
+    else: st.warning("Inventário não carregado. Verifique os dados.")
 
-# =====================================================================
-# TAB 5: MAPA DO PARQUE TECNOLÓGICO (VISÃO EXECUTIVA TREEMAP)
-# =====================================================================
 with tab_mapa:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Mapa do Parque Tecnológico</h3>", unsafe_allow_html=True)
     st.markdown("**Monitoramento de Disponibilidade e Concentração de Falhas por Setor | HU-UNIVASF**")
-
     tot_ativos_mapa = len(df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']) if not df_inv.empty else 0
     tot_parados_mapa = 0
-    
     if not df_pend.empty:
         col_parado_mapa = get_col(df_pend, ['EQUIPAMENTO PARADO', 'PARADO'])
-        if col_parado_mapa:
-            tot_parados_mapa = len(df_pend[df_pend[col_parado_mapa].astype(str).str.upper().str.strip() == 'SIM'])
-            
+        if col_parado_mapa: tot_parados_mapa = len(df_pend[df_pend[col_parado_mapa].astype(str).str.upper().str.strip() == 'SIM'])
     taxa_disp = ((tot_ativos_mapa - tot_parados_mapa) / tot_ativos_mapa * 100) if tot_ativos_mapa > 0 else 0
-    
     map_c1, map_c2, map_c3 = st.columns(3)
     map_c1.metric("Total de Ativos (Inventário)", f"{tot_ativos_mapa:,}".replace(",", "."))
     map_c2.metric("Equipamentos Parados (Corretiva)", f"{tot_parados_mapa}", "Ação Imediata", delta_color="inverse")
     map_c3.metric("Taxa de Disponibilidade Global", f"{taxa_disp:.1f}%", "Meta: 95.0%", delta_color="normal" if taxa_disp >= 95 else "inverse")
-
     st.markdown("<br><h4 style='color: #154899;'>Concentração de O.S. por Localização Física</h4>", unsafe_allow_html=True)
-    
     if not df_pend.empty:
         col_local_mapa = get_col(df_pend, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO', 'LOCALIZACAO_INVENTARIO'])
         if col_local_mapa:
             df_tree = df_pend.groupby(col_local_mapa).size().reset_index(name='FALHAS')
             df_tree = df_tree[df_tree['FALHAS'] > 0]
-            
             if not df_tree.empty:
-                fig_tree = px.treemap(
-                    df_tree, 
-                    path=[px.Constant("HU-UNIVASF"), col_local_mapa], 
-                    values='FALHAS', 
-                    color='FALHAS', 
-                    color_continuous_scale='Reds',
-                    title="Mapeamento de Áreas Críticas (Volume de Falhas Abertas)"
-                )
+                fig_tree = px.treemap(df_tree, path=[px.Constant("HU-UNIVASF"), col_local_mapa], values='FALHAS', color='FALHAS', color_continuous_scale='Reds', title="Mapeamento de Áreas Críticas (Volume de Falhas Abertas)")
                 fig_tree.update_traces(root_color="lightgrey")
                 fig_tree.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=550)
                 st.plotly_chart(fig_tree, use_container_width=True)
-            else:
-                st.success("Não há falhas pendentes vinculadas a locais físicos.")
-        else:
-            st.info("Coluna de Localização não identificada na Fila de O.S.")
-    else:
-        st.success("A fila de O.S. está vazia. O parque está 100% operacional!")
+            else: st.success("Não há falhas pendentes vinculadas a locais físicos.")
+        else: st.info("Coluna de Localização não identificada na Fila de O.S.")
+    else: st.success("A fila de O.S. está vazia. O parque está 100% operacional!")
 
-# =====================================================================
-# TAB 6: CICLO DE VIDA DO PARQUE
-# =====================================================================
 with tab_parque:
     if not df_inv.empty:
         df_ativos = df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']
@@ -612,13 +504,11 @@ with tab_parque:
         qtd_mp_ok = len(df_ativos[df_ativos['Ordem Status MP'].isin([6, 7])])
         pct_mp_ok = (qtd_mp_ok / total_ativos * 100) if total_ativos > 0 else 0
         qtd_fora_garantia = len(df_ativos[df_ativos['Status Garantia'] == 'Fora de Garantia'])
-
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Equipamentos Ativos", f"{total_ativos:,}".replace(",", "."))
         c2.metric("Críticos (> 10 anos)", f"{pct_critico_idade:.1f}%", f"{qtd_critico_idade} ativos antigos", delta_color="inverse")
         c3.metric("Conformidade (OK + Garantia)", f"{pct_mp_ok:.1f}%", "Meta: 100%")
         c4.metric("Fora de Garantia", f"{(qtd_fora_garantia/total_ativos*100):.1f}%", f"{qtd_fora_garantia} ativos")
-
         st.markdown("<br>", unsafe_allow_html=True)
         g1, g2 = st.columns(2)
         with g1:
@@ -628,7 +518,6 @@ with tab_parque:
             fig_faixa = px.bar(df_faixa, x='Faixa de Idade', y='Qtd', text='Qtd', color_discrete_sequence=['#154899'])
             fig_faixa.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=300, xaxis_title=None, yaxis_title=None)
             st.plotly_chart(fig_faixa, use_container_width=True)
-            
         with g2:
             st.markdown("##### Status Geral das Manutenções Programadas")
             mapa_nomes = {7: "Novo ou Garantia", 6: "Em Dia (OK)", 5: "Vence em 3m", 4: "Vence em 45d", 3: "Vencido (+1a)", 2: "Crítico (+2a)", 1: "Nunca Realizado (NR)"}
@@ -639,26 +528,19 @@ with tab_parque:
             fig_pie_mp.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=300)
             st.plotly_chart(fig_pie_mp, use_container_width=True)
 
-# =====================================================================
-# TAB 7: GESTÃO FINANCEIRA
-# =====================================================================
 with tab_financeiro:
     if not df_inv.empty:
         df_fin = df_inv.copy()
-        for col in ['VALOR (R$)', 'CUSTO PEÇA (R$)', 'CUSTO SERVIÇO EXTERNO (R$)']:
-            df_fin[col] = pd.to_numeric(df_fin[col], errors='coerce').fillna(0) if col in df_fin.columns else 0.0
-                
+        for col in ['VALOR (R$)', 'CUSTO PEÇA (R$)', 'CUSTO SERVIÇO EXTERNO (R$)']: df_fin[col] = pd.to_numeric(df_fin[col], errors='coerce').fillna(0) if col in df_fin.columns else 0.0
         df_fin_ativos = df_fin[df_fin['STATUS_EQUIPAMENTO'] == 'ATIVO']
         patrimonio_total = df_fin_ativos['VALOR (R$)'].sum()
         custo_manutencao_total = df_fin_ativos['CUSTO PEÇA (R$)'].sum() + df_fin_ativos['CUSTO SERVIÇO EXTERNO (R$)'].sum()
         ticket_medio_ativo = df_fin_ativos['VALOR (R$)'].mean() if len(df_fin_ativos) > 0 else 0
-
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Investimento Total (Patrimônio)", f"R$ {patrimonio_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         m2.metric("Custo Acumulado Manutenção", f"R$ {custo_manutencao_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         m3.metric("Ticket Médio por Ativo", f"R$ {ticket_medio_ativo:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         m4.metric("Despesa com Serviços Externos", f"R$ {df_fin_ativos['CUSTO SERVIÇO EXTERNO (R$)'].sum():,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-
         st.markdown("<br>", unsafe_allow_html=True)
         fin_g1, fin_g2 = st.columns(2)
         with fin_g1:
@@ -670,7 +552,6 @@ with tab_financeiro:
                 fig_val_tipo.update_traces(texttemplate='R$ %{text:,.2s}', textposition='outside')
                 fig_val_tipo.update_layout(yaxis={'categoryorder':'total ascending'}, margin=dict(l=20, r=20, t=20, b=20), height=350)
                 st.plotly_chart(fig_val_tipo, use_container_width=True)
-                
         with fin_g2:
             st.markdown("##### 📈 Curva Histórica de Investimentos em Aquisições")
             if 'AQUISIÇÃO' in df_fin_ativos.columns:
@@ -687,18 +568,40 @@ with tab_financeiro:
 with tab_historico:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico Retroativo (Fila e Desempenho)</h3>", unsafe_allow_html=True)
     
-    # Adicionando Disponibilidade Dinâmica para a Tela 
-    if not df_curva_fila.empty and 'Parados' in df_curva_fila.columns:
-        total_ativos = len(df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']) if not df_inv.empty else 0
-        if total_ativos > 0:
-            df_curva_fila['Taxa_Disp'] = ((total_ativos - df_curva_fila['Parados']) / total_ativos) * 100
-        else:
-            df_curva_fila['Taxa_Disp'] = 0
+    # Processamento Dinâmico de Dados de Backlog (Para preencher as caixas sem quebrar)
+    df_hist_agrupado = pd.DataFrame()
+    if not df_curva_fila.empty and 'DT_SNAP' in df_curva_fila.columns:
+        
+        # Agrupa as faixas de dias
+        df_counts = df_curva_fila.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
+        ordem_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
+        for faixa in ordem_faixas:
+            if faixa not in df_counts.columns: df_counts[faixa] = 0
+        df_counts = df_counts[ordem_faixas]
 
+        # Calcula as médias REAIS extraindo direto do agrupamento
+        df_metrics = df_curva_fila.groupby('DT_SNAP').agg(
+            Tempo_Medio_Aberta=('DIAS_ABERTO', 'mean'),
+            Criticas=('IS_CRITICO', 'sum'),
+            Parados=('IS_PARADO', 'sum')
+        )
+
+        df_hist_agrupado = pd.merge(df_counts, df_metrics, on='DT_SNAP').reset_index()
+        df_hist_agrupado.rename(columns={'DT_SNAP': 'Data', 'Tempo_Medio_Aberta': 'Tempo Médio Aberta', 'Criticas': 'Críticas'}, inplace=True)
+        df_hist_agrupado.sort_values('Data', inplace=True)
+
+        # Calcula a Disponibilidade
+        total_ativos_filtro = len(df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']) if not df_inv.empty else 0
+        if total_ativos_filtro > 0:
+            df_hist_agrupado['Taxa_Disp'] = ((total_ativos_filtro - df_hist_agrupado['Parados']) / total_ativos_filtro) * 100
+        else:
+            df_hist_agrupado['Taxa_Disp'] = 0
+
+    # GRÁFICO 1: FOTO HISTÓRICA DA TAXA DE DISPONIBILIDADE
     with st.container(border=True):
         st.markdown("##### FOTO HISTÓRICA DA TAXA DE DISPONIBILIDADE")
-        if not df_curva_fila.empty and 'Taxa_Disp' in df_curva_fila.columns:
-            fig_disp = px.line(df_curva_fila, x='Data', y='Taxa_Disp', markers=True, color_discrete_sequence=['#154899'])
+        if not df_hist_agrupado.empty and 'Taxa_Disp' in df_hist_agrupado.columns:
+            fig_disp = px.line(df_hist_agrupado, x='Data', y='Taxa_Disp', markers=True, color_discrete_sequence=['#154899'])
             fig_disp.update_traces(fill='tozeroy', fillcolor='rgba(21, 72, 153, 0.2)')
             fig_disp.add_hline(y=95, line_dash="dash", line_color="green", annotation_text="Meta 95%", annotation_position="bottom right")
             fig_disp.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0), yaxis_title="Disponibilidade (%)")
@@ -706,37 +609,32 @@ with tab_historico:
         else:
             st.info("📊 Sincronizando dados de disponibilidade...")
 
-    # --- GRELHA ORIGINAL ---
+    # --- DEFINIÇÃO DA GRELHA ORIGINAL ---
     r1c1, r1c2 = st.columns(2)
     r2c1, r2c2 = st.columns(2)
 
     with r1c1:
         with st.container(border=True):
             st.markdown("##### TOTAL O.S x FAIXA DE DIAS")
-            if df_curva_fila is not None and not df_curva_fila.empty:
-                col_data_backlog = next((c for c in ['Data', 'DT_SNAP', 'DATA'] if c in df_curva_fila.columns), None)
-                colunas_faixa = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
+            if not df_hist_agrupado.empty:
+                fig_faixa = go.Figure()
+                cores_linha = ['#7BB071', '#C85A5A', '#5C668A', '#E5B64E', '#83AEDB']
+                cores_fundo = ['rgba(123, 176, 113, 0.5)', 'rgba(200, 90, 90, 0.5)', 'rgba(92, 102, 138, 0.5)', 'rgba(229, 182, 78, 0.5)', 'rgba(131, 174, 219, 0.5)']
                 
-                if col_data_backlog and any(c in df_curva_fila.columns for c in colunas_faixa):
-                    fig_faixa = go.Figure()
-                    cores_linha = ['#7BB071', '#C85A5A', '#5C668A', '#E5B64E', '#83AEDB']
-                    cores_fundo = ['rgba(123, 176, 113, 0.5)', 'rgba(200, 90, 90, 0.5)', 'rgba(92, 102, 138, 0.5)', 'rgba(229, 182, 78, 0.5)', 'rgba(131, 174, 219, 0.5)']
-                    
-                    for idx, col in enumerate(colunas_faixa):
-                        if col in df_curva_fila.columns:
-                            fig_faixa.add_trace(go.Scatter(
-                                x=df_curva_fila[col_data_backlog], 
-                                y=df_curva_fila[col], 
-                                name=col, 
-                                mode='lines',
-                                fill='tozeroy',
-                                line=dict(width=2, color=cores_linha[idx]), 
-                                fillcolor=cores_fundo[idx]
-                            ))
-                            
-                    fig_faixa.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5), hovermode="x unified")
-                    st.plotly_chart(fig_faixa, use_container_width=True)
-                else: st.info("📊 Mapeando faixas históricas cronológicas...")
+                for idx, col in enumerate(['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']):
+                    if col in df_hist_agrupado.columns:
+                        fig_faixa.add_trace(go.Scatter(
+                            x=df_hist_agrupado['Data'], 
+                            y=df_hist_agrupado[col], 
+                            name=col, 
+                            mode='lines',
+                            fill='tozeroy',
+                            line=dict(width=2, color=cores_linha[idx]), 
+                            fillcolor=cores_fundo[idx]
+                        ))
+                        
+                fig_faixa.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5), hovermode="x unified")
+                st.plotly_chart(fig_faixa, use_container_width=True)
             else: st.info("📊 Sem registos de curva de backlog disponíveis.")
 
     with r1c2:
@@ -764,38 +662,28 @@ with tab_historico:
     with r2c1:
         with st.container(border=True):
             st.markdown("##### TEMPO MÉDIO - O.S PENDENTE ABERTA")
-            if df_curva_fila is not None and not df_curva_fila.empty:
-                col_data_backlog = next((c for c in ['Data', 'DT_SNAP', 'DATA'] if c in df_curva_fila.columns), None)
-                col_tm = next((c for c in ['Tempo Médio Aberta', 'TEMPO_MEDIO', 'MEDIA_DIAS'] if c in df_curva_fila.columns), None)
+            if not df_hist_agrupado.empty and 'Tempo Médio Aberta' in df_hist_agrupado.columns:
+                df_tm_clean = df_hist_agrupado.dropna(subset=['Data', 'Tempo Médio Aberta']).copy()
+                fig_tm = px.line(df_tm_clean, x='Data', y='Tempo Médio Aberta', color_discrete_sequence=['#70ad47'])
                 
-                if col_data_backlog and col_tm:
-                    df_tm_clean = df_curva_fila.dropna(subset=[col_data_backlog, col_tm]).copy()
-                    fig_tm = px.line(df_tm_clean, x=col_data_backlog, y=col_tm, color_discrete_sequence=['#70ad47'])
+                if len(df_tm_clean) > 1:
+                    x_numeric = pd.to_numeric(df_tm_clean['Data'])
+                    z = np.polyfit(x_numeric, df_tm_clean['Tempo Médio Aberta'], 1)
+                    p = np.poly1d(z)
+                    fig_tm.add_trace(go.Scatter(x=df_tm_clean['Data'], y=p(x_numeric), mode='lines', line=dict(dash='dash', color='#2b2b2b', width=1.5), hoverinfo='skip', showlegend=False))
                     
-                    if len(df_tm_clean) > 1:
-                        x_numeric = pd.to_numeric(df_tm_clean[col_data_backlog])
-                        z = np.polyfit(x_numeric, df_tm_clean[col_tm], 1)
-                        p = np.poly1d(z)
-                        fig_tm.add_trace(go.Scatter(x=df_tm_clean[col_data_backlog], y=p(x_numeric), mode='lines', line=dict(dash='dash', color='#2b2b2b', width=1.5), hoverinfo='skip', showlegend=False))
-                        
-                    fig_tm.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
-                    st.plotly_chart(fig_tm, use_container_width=True)
-                else: st.info("📉 Sincronizando métrica de tempo de espera...")
-            else: st.info("📉 Sem registos de evolução de pendências.")
+                fig_tm.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
+                st.plotly_chart(fig_tm, use_container_width=True)
+            else: st.info("📉 Sincronizando métrica de tempo de espera...")
 
     with r2c2:
         with st.container(border=True):
             st.markdown("##### TOTAL - O.S CRÍTICAS PENDENTES")
-            if df_curva_fila is not None and not df_curva_fila.empty:
-                col_data_backlog = next((c for c in ['Data', 'DT_SNAP', 'DATA'] if c in df_curva_fila.columns), None)
-                col_crit = next((c for c in ['Críticas', 'CRITICAS', 'CRITICO'] if c in df_curva_fila.columns), None)
-                
-                if col_data_backlog and col_crit:
-                    fig_crit = px.area(df_curva_fila, x=col_data_backlog, y=col_crit, color_discrete_sequence=['#a9d18e'])
-                    fig_crit.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
-                    st.plotly_chart(fig_crit, use_container_width=True)
-                else: st.info("⚠️ Sincronizando volumetria de criticidade...")
-            else: st.info("⚠️ Sem registos de criticidade em aberto.")
+            if not df_hist_agrupado.empty and 'Críticas' in df_hist_agrupado.columns:
+                fig_crit = px.area(df_hist_agrupado, x='Data', y='Críticas', color_discrete_sequence=['#a9d18e'])
+                fig_crit.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
+                st.plotly_chart(fig_crit, use_container_width=True)
+            else: st.info("⚠️ Sincronizando volumetria de criticidade...")
 
     # Contentor Fundo: TMA X MÊS
     with st.container(border=True):
