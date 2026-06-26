@@ -71,60 +71,70 @@ def gerar_curva_backlog():
     arquivos = get_arquivos(caminho_pasta) 
     lista_dfs = []
     
-    dicionario_setores = {
-        "BC": "BLOCO CIRÚRGICO", "BLOCO CIRURGICO": "BLOCO CIRÚRGICO",
-        "UTI": "UNIDADE DE TERAPIA INTENSIVA", "CC": "CLÍNICA CIRÚRGICA",
-        "CLINICA CIRURGICA": "CLÍNICA CIRÚRGICA", "CM": "CLÍNICA MÉDICA",
-        "CLINICA MEDICA": "CLÍNICA MÉDICA", "CME": "CME",
-        "CO": "CENTRO OBSTÉTRICO", "HU-00364": "NÃO IDENTIFICADO",
-        "NAN": "NÃO INFORMADO", "NONE": "NÃO INFORMADO"
-    }
-
     for arq in arquivos:
         try:
             data_ref = extrair_data_do_nome(os.path.basename(arq))
-            if not data_ref: data_ref = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
+            if not data_ref:
+                data_ref = pd.to_datetime(os.path.getmtime(arq), unit='s').normalize()
             
-            df = ler_arquivo_gets(arq, COLUNAS_BUSCA_OS)
+            df = ler_arquivo_gets(arq, ['O.S.', 'N.º O.S.', 'OS', 'CHAMADO'])
             if df.empty: continue
             
             df = df.rename(columns=MAPA_COLUNAS_UNIVERSAL)
             c_os = 'O.S.' if 'O.S.' in df.columns else None
             c_abert = 'ABERTURA' if 'ABERTURA' in df.columns else None
+            
             if not (c_os and c_abert): continue
                 
             raw_dates = df[c_abert].astype(str).str.split(',').str[-1].str.strip()
             datas_texto = pd.to_datetime(raw_dates, errors='coerce', dayfirst=True)
-            datas_excel = pd.to_datetime(pd.to_numeric(raw_dates, errors='coerce'), origin='1899-12-30', unit='D', errors='coerce')
+            numeros = pd.to_numeric(raw_dates, errors='coerce')
+            datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
             
             df['DT_ABERTURA'] = datas_texto.fillna(datas_excel)
+            df['DT_SNAP'] = data_ref
             df = df.dropna(subset=['DT_ABERTURA'])
+            df = df[(df['DT_ABERTURA'].dt.year >= 2015) & (df['DT_ABERTURA'] <= df['DT_SNAP'])]
+            if df.empty: continue
             
-            df['DIAS_ABERTO'] = (data_ref - df['DT_ABERTURA']).dt.days
-            # Filtro de Sanidade Real: Ignora O.S fantasmas (menos de zero ou mais de 5 anos antigas)
+            df['DIAS_ABERTO'] = (df['DT_SNAP'] - df['DT_ABERTURA']).dt.days
+            
+            # FILTRO DE OUTLIERS: Corta O.S "esquecidas" há mais de 5 anos para não explodir a média
             df = df[(df['DIAS_ABERTO'] >= 0) & (df['DIAS_ABERTO'] < 1825)]
             if df.empty: continue
             
             df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
             
-            c_critico = 'CRITICO' if 'CRITICO' in df.columns else None
+            c_critico = next((c for c in df.columns if 'CRITICO' in c or 'CRÍTICO' in c), None)
             df['IS_CRITICO'] = df[c_critico].astype(str).str.upper().str.strip() == 'SIM' if c_critico else False
             
             c_parado = next((c for c in ['EQUIPAMENTO PARADO', 'PARADO'] if c in df.columns), None)
             df['IS_PARADO'] = df[c_parado].astype(str).str.upper().str.strip() == 'SIM' if c_parado else False
-
-            c_loc = 'LOCALIZAÇÃO FÍSICA' if 'LOCALIZAÇÃO FÍSICA' in df.columns else None
-            df['LOCALIZAÇÃO FÍSICA'] = df[c_loc].astype(str).str.upper().str.strip().replace(dicionario_setores) if c_loc else 'NÃO INFORMADO'
                 
-            c_desc = 'DESCRIÇÃO' if 'DESCRIÇÃO' in df.columns else None
-            df['DESCRIÇÃO'] = df[c_desc].astype(str).str.upper().str.strip() if c_desc else 'NÃO INFORMADO'
-                
-            df['DT_SNAP'] = data_ref
-            lista_dfs.append(df[['DT_SNAP', 'FAIXA_DIAS', 'DIAS_ABERTO', 'IS_CRITICO', 'IS_PARADO', 'LOCALIZAÇÃO FÍSICA', 'DESCRIÇÃO', 'O.S.']])
+            lista_dfs.append(df[['DT_SNAP', 'FAIXA_DIAS', 'DIAS_ABERTO', 'IS_CRITICO', 'IS_PARADO', c_os]])
         except: continue
             
     if not lista_dfs: return pd.DataFrame()
-    return pd.concat(lista_dfs, ignore_index=True)
+    
+    df_final = pd.concat(lista_dfs, ignore_index=True)
+    
+    df_counts = df_final.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
+    ordem_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
+    for faixa in ordem_faixas:
+        if faixa not in df_counts.columns: df_counts[faixa] = 0
+    df_counts = df_counts[ordem_faixas]
+    
+    df_metrics = df_final.groupby('DT_SNAP').agg(
+        Tempo_Medio_Aberta=('DIAS_ABERTO', 'mean'),
+        Criticas=('IS_CRITICO', 'sum'),
+        Parados=('IS_PARADO', 'sum')
+    )
+    
+    df_res = pd.merge(df_counts, df_metrics, on='DT_SNAP').reset_index()
+    df_res = df_res.rename(columns={'DT_SNAP': 'Data', 'Tempo_Medio_Aberta': 'Tempo Médio Aberta', 'Criticas': 'Críticas'})
+    df_res = df_res.sort_values('Data') 
+    
+    return df_res
 
 # =====================================================================
 # 3. CRUZAMENTO DE INVENTÁRIO
