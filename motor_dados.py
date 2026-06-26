@@ -71,7 +71,7 @@ def gerar_curva_backlog():
     arquivos = glob.glob(os.path.join(caminho_pasta, "RelOSsPendentes*.*"))
     lista_dfs = []
     
-    for arq in archivos:
+   for arq in arquivos:
         if not arq.lower().endswith(('.xlsx', '.xls', '.csv')): continue
         try:
             data_ref = extrair_data_do_nome(os.path.basename(arq))
