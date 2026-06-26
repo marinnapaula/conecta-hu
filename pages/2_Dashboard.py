@@ -678,70 +678,7 @@ with tab_financeiro:
 with tab_historico:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico Retroativo (Fila e Desempenho)</h3>", unsafe_allow_html=True)
     
-    # --- CALENDÁRIO MENSAL DE FLUXO (ABRE DENTRO DE EXPANDER PARA MANTER O LOOK ORIGINAL) ---
-    with st.expander("📅 CONSULTAR CALENDÁRIO DE FLUXO DIÁRIO DE O.S.", expanded=False):
-        import calendar
-        c_ano, c_mes, _ = st.columns([1.5, 2, 4])
-        ano_atual = datetime.today().year
-        mes_atual = datetime.today().month
-        
-        ano_sel = c_ano.selectbox("Ano do Calendário", sorted(list(set([ano_atual, 2024, 2025, 2026])), reverse=True), key="cal_ano")
-        meses_nome = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-        mes_nome_sel = c_mes.selectbox("Mês do Calendário", meses_nome, index=mes_atual-1, key="cal_mes")
-        mes_sel = meses_nome.index(mes_nome_sel) + 1
-        
-        dados_por_dia = {}
-        for df_temp in [df_enc, df_pend]:
-            if df_temp is not None and not df_temp.empty:
-                col_ab = get_col(df_temp, ['ABERTURA', 'DATA ABERTURA'])
-                if col_ab:
-                    df_valid = df_temp.dropna(subset=[col_ab]).copy()
-                    df_valid[col_ab] = pd.to_datetime(df_valid[col_ab], errors='coerce')
-                    df_filtro = df_valid[(df_valid[col_ab].dt.year == ano_sel) & (df_valid[col_ab].dt.month == mes_sel)]
-                    for dia, group in df_filtro.groupby(df_filtro[col_ab].dt.day):
-                        if dia not in dados_por_dia: dados_por_dia[dia] = {'abertas': 0, 'fechadas': 0}
-                        dados_por_dia[dia]['abertas'] += len(group)
-                        
-        if df_enc is not None and not df_enc.empty:
-            col_enc = get_col(df_enc, ['ENCERRAMENTO', 'DATA ENCERRAMENTO'])
-            if col_enc:
-                df_valid_enc = df_enc.dropna(subset=[col_enc]).copy()
-                df_valid_enc[col_enc] = pd.to_datetime(df_valid_enc[col_enc], errors='coerce')
-                df_filtro_enc = df_valid_enc[(df_valid_enc[col_enc].dt.year == ano_sel) & (df_valid_enc[col_enc].dt.month == mes_sel)]
-                for dia, group in df_filtro_enc.groupby(df_filtro_enc[col_enc].dt.day):
-                    if dia not in dados_por_dia: dados_por_dia[dia] = {'abertas': 0, 'fechadas': 0}
-                    dados_por_dia[dia]['fechadas'] += len(group)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        dias_semana = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
-        cols_header = st.columns(7)
-        for idx, col_h in enumerate(cols_header):
-            col_h.markdown(f"<p style='text-align: center; font-weight: bold; margin-bottom:5px;'>{dias_semana[idx]}</p>", unsafe_allow_html=True)
-            
-        matriz_mes = calendar.monthcalendar(ano_sel, mes_sel)
-        for semana in matriz_mes:
-            cols_dia = st.columns(7)
-            for idx, dia in enumerate(semana):
-                with cols_dia[idx]:
-                    if dia == 0:
-                        st.markdown("<div style='min-height: 90px; background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 5px; margin-bottom: 10px;'></div>", unsafe_allow_html=True)
-                    else:
-                        info = dados_por_dia.get(dia, {'abertas': 0, 'fechadas': 0})
-                        bg_color = "#ffffff"
-                        if info['abertas'] > info['fechadas'] and info['abertas'] > 0: bg_color = "#fff3cd"
-                        elif info['fechadas'] > 0 and info['abertas'] == 0: bg_color = "#e2f0d9"
-                            
-                        html_card = f"""
-                        <div style='min-height: 90px; background-color: {bg_color}; border: 1px solid #dee2e6; border-radius: 5px; padding: 8px; box-shadow: 1px 1px 3px rgba(0,0,0,0.05); text-align: left; margin-bottom: 10px;'>
-                            <span style='font-weight: bold; font-size: 14px; color: #495057;'>{dia}</span>
-                            <div style='margin-top: 5px; font-size: 11px; font-weight: 500;'>
-                                <span style='color: #c00000;'>📥 Ab: {info['abertas']}</span><br>
-                                <span style='color: #70ad47;'>📤 Fech: {info['fechadas']}</span>
-                            </div>
-                        </div>
-                        """
-                        st.markdown(html_card, unsafe_allow_html=True)
-
+  
     # --- DEFINIÇÃO DA GRELHA DE CONTENTORES (IDÊNTICA AO POWER BI) ---
     r1c1, r1c2 = st.columns(2)
     r2c1, r2c2 = st.columns(2)
