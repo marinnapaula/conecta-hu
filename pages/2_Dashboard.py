@@ -746,25 +746,43 @@ with tab_historico:
             else:
                 st.info("📈 Sem dados de ordens encerradas.")
 
-    # Contentor 3 (Linha 2 - Esquerda): TEMPO MÉDIO - O.S PENDENTE ABERTA
-    with r2c1:
-        with st.container(border=True):
-            st.markdown("##### TEMPO MÉDIO - O.S PENDENTE ABERTA")
-            if df_curva_fila is not None and not df_curva_fila.empty:
-                col_data_backlog = next((c for c in ['Data', 'DT_SNAP', 'DATA'] if c in df_curva_fila.columns), None)
-                col_tm = next((c for c in ['Tempo Médio Aberta', 'TEMPO_MEDIO', 'MEDIA_DIAS'] if c in df_curva_fila.columns), None)
-                
-                if col_data_backlog and col_tm:
-                    fig_tm = px.line(df_curva_fila, x=col_data_backlog, y=col_tm, color_discrete_sequence=['#70ad47'])
-                    media_geral = df_curva_fila[col_tm].mean()
-                    fig_tm.add_hline(y=media_geral, line_dash="dash", line_color="black")
-                    fig_tm.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
-                    st.plotly_chart(fig_tm, use_container_width=True)
+  # Contentor 3 (Linha 2 - Esquerda): TEMPO MÉDIO - O.S PENDENTE ABERTA
+        with r2c1:
+            with st.container(border=True):
+                st.markdown("##### TEMPO MÉDIO - O.S PENDENTE ABERTA")
+                if df_curva_fila is not None and not df_curva_fila.empty:
+                    col_data_backlog = next((c for c in ['Data', 'DT_SNAP', 'DATA'] if c in df_curva_fila.columns), None)
+                    col_tm = next((c for c in ['Tempo Médio Aberta', 'TEMPO_MEDIO', 'MEDIA_DIAS'] if c in df_curva_fila.columns), None)
+                    
+                    if col_data_backlog and col_tm:
+                        df_tm_clean = df_curva_fila.dropna(subset=[col_data_backlog, col_tm]).copy()
+                        
+                        # Linha principal verde
+                        fig_tm = px.line(df_tm_clean, x=col_data_backlog, y=col_tm, color_discrete_sequence=['#70ad47'])
+                        
+                        # Cálculo Matemático da Linha de Tendência (Idêntico ao BI)
+                        if len(df_tm_clean) > 1:
+                            x_numeric = pd.to_numeric(df_tm_clean[col_data_backlog])
+                            y = df_tm_clean[col_tm]
+                            z = np.polyfit(x_numeric, y, 1)
+                            p = np.poly1d(z)
+                            
+                            fig_tm.add_trace(go.Scatter(
+                                x=df_tm_clean[col_data_backlog], 
+                                y=p(x_numeric), 
+                                mode='lines', 
+                                name='Tendência', 
+                                line=dict(dash='dash', color='#2b2b2b', width=1.5),
+                                hoverinfo='skip',
+                                showlegend=False
+                            ))
+                            
+                        fig_tm.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
+                        st.plotly_chart(fig_tm, use_container_width=True)
+                    else:
+                        st.info("📉 Sincronizando métrica de tempo de espera... Envie o código do motor para ativar.")
                 else:
-                    st.info("📉 Sincronizando métrica de tempo de espera... Envie o código do motor para ativar.")
-            else:
-                st.info("📉 Sem registos de evolução de pendências.")
-
+                    st.info("📉 Sem registos de evolução de pendências.")
     # Contentor 4 (Linha 2 - Direita): TOTAL - O.S CRÍTICAS PENDENTES
     with r2c2:
         with st.container(border=True):
