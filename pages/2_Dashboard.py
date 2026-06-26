@@ -95,18 +95,31 @@ def get_col(df, options):
 st.sidebar.markdown("<h2 style='text-align: center; color: #154899;'>Filtros Globais</h2>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
+# Novo filtro de datas para análise pontual de gráficos temporais
+ano_atual = datetime.today().year
+anos_opcoes = list(range(2023, ano_atual + 2))
+c_data1, c_data2 = st.sidebar.columns(2)
+ano_inicio = c_data1.selectbox("De (Ano)", anos_opcoes, index=0)
+ano_fim = c_data2.selectbox("Até (Ano)", anos_opcoes, index=len(anos_opcoes)-2)
+
 locais_disponiveis = sorted(df_inv['LOCALIZAÇÃO FÍSICA'].dropna().unique()) if not df_inv.empty and 'LOCALIZAÇÃO FÍSICA' in df_inv.columns else []
 tipos_disponiveis = sorted(df_inv['DESCRIÇÃO'].dropna().unique()) if not df_inv.empty and 'DESCRIÇÃO' in df_inv.columns else []
 
 filtro_local = st.sidebar.multiselect("Localização", locais_disponiveis, placeholder="Todos os setores")
 filtro_tipo = st.sidebar.multiselect("Tipo de Equipamento", tipos_disponiveis, placeholder="Todos os tipos")
 
-# A MÁGICA: Só aplica o filtro se o usuário escolheu algo E não escolheu tudo
 aplicar_filtro_local = len(filtro_local) > 0 and len(filtro_local) < len(locais_disponiveis)
 aplicar_filtro_tipo = len(filtro_tipo) > 0 and len(filtro_tipo) < len(tipos_disponiveis)
 
+# Aplicando os filtros globalmente em todas as bases (Inventário, Pendentes, Encerradas, Histórico)
 if aplicar_filtro_local and not df_inv.empty: df_inv = df_inv[df_inv['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
 if aplicar_filtro_tipo and not df_inv.empty: df_inv = df_inv[df_inv['DESCRIÇÃO'].isin(filtro_tipo)]
+
+if not df_curva_fila.empty:
+    if aplicar_filtro_local: df_curva_fila = df_curva_fila[df_curva_fila['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
+    if aplicar_filtro_tipo:  df_curva_fila = df_curva_fila[df_curva_fila['DESCRIÇÃO'].isin(filtro_tipo)]
+    # Filtro Temporal para a curva de backlog (Opcional)
+    df_curva_fila = df_curva_fila[(df_curva_fila['DT_SNAP'].dt.year >= ano_inicio) & (df_curva_fila['DT_SNAP'].dt.year <= ano_fim)]
 
 if not df_pend_bruto.empty:
     df_pend = df_pend_bruto.copy()
@@ -141,6 +154,7 @@ if not df_enc_bruto.empty:
     df_enc = df_enc_bruto.copy()
     c_loc_e = get_col(df_enc, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO'])
     c_tip_e = get_col(df_enc, ['TIPO EQUIPAMENTO', 'EQUIPAMENTO', 'DESCRIÇÃO'])
+    
     if aplicar_filtro_local and c_loc_e: df_enc = df_enc[df_enc[c_loc_e].isin(filtro_local)]
     if aplicar_filtro_tipo and c_tip_e:  df_enc = df_enc[df_enc[c_tip_e].isin(filtro_tipo)]
 else:
@@ -192,7 +206,6 @@ with tab_indicadores:
         df_pend_mc = df_pend[df_pend['TIPO_MANUTENCAO'] == 'CORRETIVA']
         tm_aberta_mc = df_pend_mc['DIAS_EM_ABERTO'].mean() if not df_pend_mc.empty else 0
 
-    # Linha Executiva Superiores Sutil (Cards Dinâmicos)
     st.markdown("<h4 style='color: #154899; margin-bottom: 5px; margin-top: 5px;'>Visão Geral de Desempenho e Fila</h4>", unsafe_allow_html=True)
     
     ind_c1, ind_c2, ind_c3, ind_c4, ind_c5 = st.columns(5)
@@ -589,7 +602,7 @@ with tab_mapa:
         else:
             st.info("Coluna de Localização não identificada na Fila de O.S.")
     else:
-        st.success("A fila de O.S. está vazia. O parque está 100% operational!")
+        st.success("A fila de O.S. está vazia. O parque está 100% operacional!")
 
 # =====================================================================
 # TAB 6: CICLO DE VIDA DO PARQUE
@@ -678,51 +691,86 @@ with tab_financeiro:
 with tab_historico:
     st.markdown("<h3 style='color: #154899; margin-top: 15px;'>Histórico Analítico Retroativo (Fila e Desempenho)</h3>", unsafe_allow_html=True)
     
-  
-    # --- DEFINIÇÃO DA GRELHA DE CONTENTORES (IDÊNTICA AO POWER BI) ---
+    # --- DEFINIÇÃO DA GRELHA DE CONTENTORES ---
     r1c1, r1c2 = st.columns(2)
     r2c1, r2c2 = st.columns(2)
-    
-    # Contentor 1 (Linha 1 - Esquerda): TOTAL O.S x FAIXA DE DIAS
-    with r1c1:
-        with st.container(border=True):
-            st.markdown("##### TOTAL O.S x FAIXA DE DIAS")
-            if df_curva_fila is not None and not df_curva_fila.empty:
-                col_data_backlog = next((c for c in ['Data', 'DT_SNAP', 'DATA'] if c in df_curva_fila.columns), None)
-                colunas_faixa = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
-                
-                if col_data_backlog and any(c in df_curva_fila.columns for c in colunas_faixa):
-                    fig_faixa = go.Figure()
-                    
-                    # Cores exatas do Power BI separadas em Linhas (Sólidas) e Preenchimentos (Transparentes 50%)
-                    cores_linha = ['#7BB071', '#C85A5A', '#5C668A', '#E5B64E', '#83AEDB']
-                    cores_fundo = ['rgba(123, 176, 113, 0.5)', 'rgba(200, 90, 90, 0.5)', 'rgba(92, 102, 138, 0.5)', 'rgba(229, 182, 78, 0.5)', 'rgba(131, 174, 219, 0.5)']
-                    
-                    for idx, col in enumerate(colunas_faixa):
-                        if col in df_curva_fila.columns:
-                            fig_faixa.add_trace(go.Scatter(
-                                x=df_curva_fila[col_data_backlog], 
-                                y=df_curva_fila[col], 
-                                name=col, 
-                                mode='lines',
-                                fill='tozeroy', # Preenche até a base (sobreposto, sem empilhar)
-                                line=dict(width=2, color=cores_linha[idx]), 
-                                fillcolor=cores_fundo[idx]
-                            ))
-                            
-                    fig_faixa.update_layout(
-                        height=280, 
-                        margin=dict(l=0, r=0, t=10, b=0), 
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
-                        hovermode="x unified" # Facilita ver todos os valores daquele dia ao passar o rato
-                    )
-                    st.plotly_chart(fig_faixa, use_container_width=True)
-                else:
-                    st.info("📊 Mapeando faixas históricas cronológicas... Envie o código do motor para sincronizar.")
-            else:
-                st.info("📊 Sem registos de curva de backlog disponíveis.")
 
-    # Contentor 2 (Linha 1 - Direita): TMA - HISTÓRICO
+    # Processamento Dinâmico de Dados de Backlog (Responde aos Filtros!)
+    if not df_curva_fila.empty:
+        
+        # Agrupa os dados no momento baseando-se no filtro lateral ativo
+        df_counts = df_curva_fila.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
+        ordem_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
+        for faixa in ordem_faixas:
+            if faixa not in df_counts.columns: df_counts[faixa] = 0
+        df_counts = df_counts[ordem_faixas]
+
+        df_metrics = df_curva_fila.groupby('DT_SNAP').agg(
+            Tempo_Medio_Aberta=('DIAS_ABERTO', 'mean'),
+            Criticas=('IS_CRITICO', 'sum'),
+            Parados=('IS_PARADO', 'sum')
+        )
+
+        df_hist_agrupado = pd.merge(df_counts, df_metrics, on='DT_SNAP').reset_index()
+        df_hist_agrupado = df_hist_agrupado.rename(columns={'DT_SNAP': 'Data'})
+        df_hist_agrupado = df_hist_agrupado.sort_values('Data')
+
+        # CALCULA A DISPONIBILIDADE
+        total_ativos_filtro = len(df_inv[df_inv['STATUS_EQUIPAMENTO'] == 'ATIVO']) if not df_inv.empty else 0
+        if total_ativos_filtro > 0:
+            df_hist_agrupado['Taxa_Disp'] = ((total_ativos_filtro - df_hist_agrupado['Parados']) / total_ativos_filtro) * 100
+        else:
+            df_hist_agrupado['Taxa_Disp'] = 0
+
+        # NOVO GRÁFICO: TAXA DE DISPONIBILIDADE GLOBAL HISTÓRICA (Ocupa o ecrã inteiro)
+        with st.container(border=True):
+            st.markdown("##### FOTO HISTÓRICA DA TAXA DE DISPONIBILIDADE")
+            fig_disp = px.line(df_hist_agrupado, x='Data', y='Taxa_Disp', markers=True, color_discrete_sequence=['#154899'])
+            fig_disp.update_traces(fill='tozeroy', fillcolor='rgba(21, 72, 153, 0.2)')
+            fig_disp.add_hline(y=95, line_dash="dash", line_color="green", annotation_text="Meta 95%", annotation_position="bottom right")
+            fig_disp.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0), yaxis_title="Disponibilidade (%)")
+            st.plotly_chart(fig_disp, use_container_width=True)
+
+        # Gráfico: TOTAL O.S x FAIXA DE DIAS
+        with r1c1:
+            with st.container(border=True):
+                st.markdown("##### TOTAL O.S x FAIXA DE DIAS")
+                fig_faixa = go.Figure()
+                cores_linha = ['#7BB071', '#C85A5A', '#5C668A', '#E5B64E', '#83AEDB']
+                cores_fundo = ['rgba(123, 176, 113, 0.5)', 'rgba(200, 90, 90, 0.5)', 'rgba(92, 102, 138, 0.5)', 'rgba(229, 182, 78, 0.5)', 'rgba(131, 174, 219, 0.5)']
+                
+                for idx, col in enumerate(ordem_faixas):
+                    if col in df_hist_agrupado.columns:
+                        fig_faixa.add_trace(go.Scatter(x=df_hist_agrupado['Data'], y=df_hist_agrupado[col], name=col, mode='lines', fill='tozeroy', line=dict(width=2, color=cores_linha[idx]), fillcolor=cores_fundo[idx]))
+                
+                fig_faixa.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5), hovermode="x unified")
+                st.plotly_chart(fig_faixa, use_container_width=True)
+
+        # Gráfico: TEMPO MÉDIO - O.S PENDENTE ABERTA
+        with r2c1:
+            with st.container(border=True):
+                st.markdown("##### TEMPO MÉDIO - O.S PENDENTE ABERTA")
+                df_tm_clean = df_hist_agrupado.dropna(subset=['Data', 'Tempo_Medio_Aberta']).copy()
+                fig_tm = px.line(df_tm_clean, x='Data', y='Tempo_Medio_Aberta', color_discrete_sequence=['#70ad47'])
+                
+                if len(df_tm_clean) > 1:
+                    x_numeric = pd.to_numeric(df_tm_clean['Data'])
+                    z = np.polyfit(x_numeric, df_tm_clean['Tempo_Medio_Aberta'], 1)
+                    p = np.poly1d(z)
+                    fig_tm.add_trace(go.Scatter(x=df_tm_clean['Data'], y=p(x_numeric), mode='lines', line=dict(dash='dash', color='#2b2b2b', width=1.5), showlegend=False))
+                    
+                fig_tm.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
+                st.plotly_chart(fig_tm, use_container_width=True)
+
+        # Gráfico: TOTAL - O.S CRÍTICAS PENDENTES
+        with r2c2:
+            with st.container(border=True):
+                st.markdown("##### TOTAL - O.S CRÍTICAS PENDENTES")
+                fig_crit = px.area(df_hist_agrupado, x='Data', y='Críticas', color_discrete_sequence=['#a9d18e'])
+                fig_crit.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
+                st.plotly_chart(fig_crit, use_container_width=True)
+
+    # Contentor (Linha 1 - Direita): TMA - HISTÓRICO
     with r1c2:
         with st.container(border=True):
             st.markdown("##### TMA - HISTÓRICO")
@@ -745,82 +793,3 @@ with tab_historico:
                 st.plotly_chart(fig_tma_hist, use_container_width=True)
             else:
                 st.info("📈 Sem dados de ordens encerradas.")
-
-  # Contentor 3 (Linha 2 - Esquerda): TEMPO MÉDIO - O.S PENDENTE ABERTA
-        with r2c1:
-            with st.container(border=True):
-                st.markdown("##### TEMPO MÉDIO - O.S PENDENTE ABERTA")
-                if df_curva_fila is not None and not df_curva_fila.empty:
-                    col_data_backlog = next((c for c in ['Data', 'DT_SNAP', 'DATA'] if c in df_curva_fila.columns), None)
-                    col_tm = next((c for c in ['Tempo Médio Aberta', 'TEMPO_MEDIO', 'MEDIA_DIAS'] if c in df_curva_fila.columns), None)
-                    
-                    if col_data_backlog and col_tm:
-                        df_tm_clean = df_curva_fila.dropna(subset=[col_data_backlog, col_tm]).copy()
-                        
-                        # Linha principal verde
-                        fig_tm = px.line(df_tm_clean, x=col_data_backlog, y=col_tm, color_discrete_sequence=['#70ad47'])
-                        
-                        # Cálculo Matemático da Linha de Tendência (Idêntico ao BI)
-                        if len(df_tm_clean) > 1:
-                            x_numeric = pd.to_numeric(df_tm_clean[col_data_backlog])
-                            y = df_tm_clean[col_tm]
-                            z = np.polyfit(x_numeric, y, 1)
-                            p = np.poly1d(z)
-                            
-                            fig_tm.add_trace(go.Scatter(
-                                x=df_tm_clean[col_data_backlog], 
-                                y=p(x_numeric), 
-                                mode='lines', 
-                                name='Tendência', 
-                                line=dict(dash='dash', color='#2b2b2b', width=1.5),
-                                hoverinfo='skip',
-                                showlegend=False
-                            ))
-                            
-                        fig_tm.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
-                        st.plotly_chart(fig_tm, use_container_width=True)
-                    else:
-                        st.info("📉 Sincronizando métrica de tempo de espera... Envie o código do motor para ativar.")
-                else:
-                    st.info("📉 Sem registos de evolução de pendências.")
-    # Contentor 4 (Linha 2 - Direita): TOTAL - O.S CRÍTICAS PENDENTES
-    with r2c2:
-        with st.container(border=True):
-            st.markdown("##### TOTAL - O.S CRÍTICAS PENDENTES")
-            if df_curva_fila is not None and not df_curva_fila.empty:
-                col_data_backlog = next((c for c in ['Data', 'DT_SNAP', 'DATA'] if c in df_curva_fila.columns), None)
-                col_crit = next((c for c in ['Críticas', 'CRITICAS', 'CRITICO'] if c in df_curva_fila.columns), None)
-                
-                if col_data_backlog and col_crit:
-                    fig_crit = px.area(df_curva_fila, x=col_data_backlog, y=col_crit, color_discrete_sequence=['#a9d18e'])
-                    fig_crit.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None)
-                    st.plotly_chart(fig_crit, use_container_width=True)
-                else:
-                    st.info("⚠️ Sincronizando volumetria de criticidade... Envie o código do motor para ativar.")
-            else:
-                st.info("⚠️ Sem registos de criticidade em aberto.")
-
-    # Contentor 5 (Linha 3 - Fundo Inteiro): TMA X MÊS
-    with st.container(border=True):
-        st.markdown("##### TMA X MÊS")
-        if not df_enc.empty and 'ABERTURA' in df_enc.columns and 'ENCERRAMENTO' in df_enc.columns:
-            df_tma = df_enc.copy()
-            df_tma['DURACAO'] = (df_tma['ENCERRAMENTO'] - df_tma['ABERTURA']).dt.days
-            df_tma = df_tma.dropna(subset=['DURACAO'])
-            df_tma = df_tma[df_tma['DURACAO'] >= 0]
-            
-            df_tma['Ano'] = df_tma['ENCERRAMENTO'].dt.year.astype(str)
-            df_tma['MesNum'] = df_tma['ENCERRAMENTO'].dt.month
-            df_tma['AnoMes'] = df_tma['ENCERRAMENTO'].dt.strftime('%Y-%m')
-            
-            meses_pt = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho', 7:'Julho', 8:'Agosto', 9:'Setembro', 10:'Outubro', 11:'Novembro', 12:'Dezembro'}
-            df_tma['MesNome'] = df_tma['MesNum'].map(meses_pt)
-            
-            df_tma_mes = df_tma.groupby(['AnoMes', 'Ano', 'MesNum', 'MesNome'])['DURACAO'].mean().reset_index().sort_values('AnoMes')
-            df_tma_mes['Label'] = df_tma_mes['MesNome'] + " " + df_tma_mes['Ano']
-            
-            fig_tma_mes_chart = px.bar(df_tma_mes, x='Label', y='DURACAO', color_discrete_sequence=['#70ad47'])
-            fig_tma_mes_chart.update_layout(height=250, margin=dict(l=0, r=0, t=10, b=0), xaxis_title=None, yaxis_title=None, xaxis={'type': 'category'})
-            st.plotly_chart(fig_tma_mes_chart, use_container_width=True)
-        else:
-            st.info("📊 Aguardando dados de encerramento para consolidar a barra inferior.")
