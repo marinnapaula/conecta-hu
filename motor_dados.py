@@ -71,7 +71,7 @@ def gerar_curva_backlog():
     arquivos = glob.glob(os.path.join(caminho_pasta, "RelOSsPendentes*.*"))
     lista_dfs = []
     
-    for arq in arquivos:
+    for arq in archivos:
         if not arq.lower().endswith(('.xlsx', '.xls', '.csv')): continue
         try:
             data_ref = extrair_data_do_nome(os.path.basename(arq))
@@ -84,7 +84,6 @@ def gerar_curva_backlog():
             c_abert = next((c for c in df.columns if 'ABERTURA' in c), None)
             
             if c_os and c_abert:
-                # dayfirst=True garantido
                 df['DT_ABERTURA'] = pd.to_datetime(df[c_abert].astype(str).str.split(',').str[-1], dayfirst=True, errors='coerce')
                 df = df.dropna(subset=['DT_ABERTURA'])
                 
@@ -101,7 +100,7 @@ def gerar_curva_backlog():
     return df_final.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().reindex(idx, fill_value=0).reset_index(name='Volume')
 
 # =====================================================================
-# 3. INGESTÃO DE DADOS E CRUZAMENTO COM INVENTÁRIO
+# 3. INGESTÃO DE DADOS E CRUZAMENTO COM INVENTÁRIO (BLINDADO)
 # =====================================================================
 MAPA_COLUNAS_UNIVERSAL = {
     'N.º O.S.': 'O.S.', 'Nº O.S.': 'O.S.', 'N. O.S.': 'O.S.', 'OS': 'O.S.', 'ORDEM DE SERVIÇO': 'O.S.', 'CHAMADO': 'O.S.', 'NÚMERO DA OS': 'O.S.', 'NÚMERO DA O.S.': 'O.S.',
@@ -116,61 +115,87 @@ MAPA_COLUNAS_UNIVERSAL = {
 COLUNAS_BUSCA_OS = list(MAPA_COLUNAS_UNIVERSAL.keys()) + ['O.S.', 'CRITICO', 'SNAPSHOT_DATE', 'SNAPSHOT_DT']
 
 def enriquecer_localizacao_os(df_os):
-    """Mágica de Dados: Puxa a localização do inventário e limpa a sujeira do texto."""
+    """Substitui com precisão cirúrgica a localização da O.S. pela verdade do Inventário."""
     if df_os.empty: return df_os
     
-    # 1. Carrega inventário sem causar loop
+    # 1. Localizar pasta do inventário com segurança
     pasta_inv = "04.Inventário"
     caminho_gets = os.path.join(os.getcwd(), "planilhas_gets")
     if os.path.exists(caminho_gets):
         for p in os.listdir(caminho_gets):
-            if "Invent" in p:
+            if "Invent" in p or "INVENT" in p.upper():
                 pasta_inv = p
                 break
                 
     df_inv_bruto = carregar_mais_recente(pasta_inv)
     
-    # 2. Cruza os dados se o inventário existir
+    # Vassoura e normalizadora de chaves de texto
+    def limpar_val(val):
+        if pd.isna(val): return ''
+        s = str(val).strip().upper()
+        if s.endswith('.0'): s = s[:-2]
+        if s in ['NAN', 'N/I', 'N/A', 'NÃO INFORMADO', 'NONE', 'NCONSTA', '']: return ''
+        return s
+
+    # 2. Se o inventário existir, constrói mapeamento de alta precisão
     if not df_inv_bruto.empty:
         df_inv = limpar_dimensao_equipamentos(df_inv_bruto)
-        col_serie_os = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_os.columns), None)
+        
+        col_serie_inv = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE', 'SERIE'] if c in df_inv.columns), None)
+        col_id_inv = next((c for c in ['IDENTIFICADOR', 'ID'] if c in df_inv.columns), None)
+        col_loc_inv = next((c for c in df_inv.columns if 'LOCALI' in c or 'SETOR' in c), 'LOCALIZAÇÃO FÍSICA')
+        
+        mapa_loc_sn = {}
+        mapa_loc_id = {}
+        
+        for _, row in df_inv.iterrows():
+            loc_val = str(row[col_loc_inv]).strip().upper() if col_loc_inv in df_inv.columns else ''
+            if loc_val and loc_val not in ['NAN', 'NONE', '']:
+                sn_k = limpar_val(row[col_serie_inv]) if col_serie_inv else ''
+                id_k = limpar_val(row[col_id_inv]) if col_id_inv else ''
+                if sn_k: mapa_loc_sn[sn_k] = loc_val
+                if id_k: mapa_loc_id[id_k] = loc_val
+
+        # Identifica colunas correspondentes nas ordens de serviço
+        col_serie_os = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE', 'SERIE'] if c in df_os.columns), None)
         col_id_os = next((c for c in ['IDENTIFICADOR', 'ID'] if c in df_os.columns), None)
-        
-        def gerar_key_os(row):
-            sn = str(row[col_serie_os]).strip().upper() if col_serie_os and pd.notna(row[col_serie_os]) else ''
-            id_val = str(row[col_id_os]).strip().upper() if col_id_os and pd.notna(row[col_id_os]) else ''
-            if sn and sn not in ['NAN', '']: return f"SN:{sn}"
-            if id_val and id_val not in ['NAN', '']: return f"ID:{id_val}"
-            return None
+
+        def encontrar_verdade_inventario(row):
+            sn_os = limpar_val(row[col_serie_os]) if col_serie_os else ''
+            id_os = limpar_val(row[col_id_os]) if col_id_os else ''
             
-        df_os['EQUIP_KEY'] = df_os.apply(gerar_key_os, axis=1)
-        mapa_loc = df_inv.set_index('EQUIP_KEY')['LOCALIZAÇÃO FÍSICA'].to_dict()
-        
-        if 'LOCALIZAÇÃO FÍSICA' not in df_os.columns:
+            # Prioridade 1: Casamento pelo número de série
+            if sn_os and sn_os in mapa_loc_sn: return mapa_loc_sn[sn_os]
+            # Prioridade 2: Casamento pelo identificador/ID
+            if id_os and id_os in mapa_loc_id: return mapa_loc_id[id_os]
+            
+            # Fallback seguro caso a máquina não exista no Inventário
+            orig = str(row.get('LOCALIZAÇÃO FÍSICA', 'NÃO INFORMADO')).strip().upper()
+            return orig if orig not in ['NAN', 'NONE', ''] else 'NÃO INFORMADO'
+
+        df_os['LOCALIZAÇÃO FÍSICA'] = df_os.apply(encontrar_verdade_inventario, axis=1)
+    else:
+        if 'LOCALIZAÇÃO FÍSICA' in df_os.columns:
+            df_os['LOCALIZAÇÃO FÍSICA'] = df_os['LOCALIZAÇÃO FÍSICA'].astype(str).str.upper().str.strip()
+        else:
             df_os['LOCALIZAÇÃO FÍSICA'] = 'NÃO INFORMADO'
-            
-        # Puxa do inventário. Se não achar, usa o que tinha na OS
-        df_os['LOCALIZAÇÃO FÍSICA'] = df_os['EQUIP_KEY'].map(mapa_loc).fillna(df_os['LOCALIZAÇÃO FÍSICA'])
         
-    # 3. A Vassoura de Dados (Padronização final)
-    if 'LOCALIZAÇÃO FÍSICA' in df_os.columns:
-        df_os['LOCALIZAÇÃO FÍSICA'] = df_os['LOCALIZAÇÃO FÍSICA'].astype(str).str.upper().str.strip()
-        dicionario_setores = {
-            "BC": "BLOCO CIRÚRGICO",
-            "BLOCO CIRURGICO": "BLOCO CIRÚRGICO",
-            "UTI": "UNIDADE DE TERAPIA INTENSIVA",
-            "CC": "CLÍNICA CIRÚRGICA",
-            "CLINICA CIRURGICA": "CLÍNICA CIRÚRGICA",
-            "CM": "CLÍNICA MÉDICA",
-            "CLINICA MEDICA": "CLÍNICA MÉDICA",
-            "CME": "CME",
-            "CO": "CENTRO OBSTÉTRICO",
-            "HU-00364": "NÃO IDENTIFICADO",
-            "NAN": "NÃO INFORMADO",
-            "NONE": "NÃO INFORMADO"
-        }
-        df_os['LOCALIZAÇÃO FÍSICA'] = df_os['LOCALIZAÇÃO FÍSICA'].replace(dicionario_setores)
-        
+    # 3. Consolidação Geral de Grafia (Fundir caixas duplicadas)
+    dicionario_setores = {
+        "BC": "BLOCO CIRÚRGICO",
+        "BLOCO CIRURGICO": "BLOCO CIRÚRGICO",
+        "UTI": "UNIDADE DE TERAPIA INTENSIVA",
+        "CC": "CLÍNICA CIRÚRGICA",
+        "CLINICA CIRURGICA": "CLÍNICA CIRÚRGICA",
+        "CM": "CLÍNICA MÉDICA",
+        "CLINICA MEDICA": "CLÍNICA MÉDICA",
+        "CME": "CME",
+        "CO": "CENTRO OBSTÉTRICO",
+        "HU-00364": "NÃO IDENTIFICADO",
+        "NAN": "NÃO INFORMADO",
+        "NONE": "NÃO INFORMADO"
+    }
+    df_os['LOCALIZAÇÃO FÍSICA'] = df_os['LOCALIZAÇÃO FÍSICA'].replace(dicionario_setores)
     return df_os
 
 def carregar_mais_recente(nome_pasta):
@@ -178,14 +203,15 @@ def carregar_mais_recente(nome_pasta):
     arquivos = get_arquivos(pasta_alvo)
     if not arquivos: return pd.DataFrame()
     arq_recente = max(arquivos, key=os.path.getmtime)
-    colunas = ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO'] if "Invent" in nome_pasta else COLUNAS_BUSCA_OS
+    
+    # IMPORTANTE: Permitir que o inventário leia todas as colunas para capturar localização de forma nativa
+    colunas = ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'LOCALIZACAO', 'SETOR'] if "Invent" in nome_pasta else COLUNAS_BUSCA_OS
     df = ler_arquivo_gets(arq_recente, colunas)
     
     if not df.empty:
         df = df.rename(columns=MAPA_COLUNAS_UNIVERSAL)
         df['REPORT_CREATED_AT'] = pd.to_datetime(os.path.getmtime(arq_recente), unit='s')
         
-        # Intercepta as Ordens de Serviço para enriquecer a localização
         if "Invent" not in nome_pasta and 'O.S.' in df.columns:
             df = enriquecer_localizacao_os(df)
             
@@ -217,7 +243,6 @@ def carregar_os_encerradas():
     
     for col in ['ABERTURA', 'ENCERRAMENTO']:
         if col in df_final.columns:
-            # dayfirst=True garantido
             datas_texto = pd.to_datetime(df_final[col], errors='coerce', dayfirst=True)
             numeros = pd.to_numeric(df_final[col], errors='coerce')
             datas_excel = pd.to_datetime(numeros, origin='1899-12-30', unit='D', errors='coerce')
@@ -230,8 +255,6 @@ def carregar_os_encerradas():
         df_final = df_final.sort_values(by='REPORT_CREATED_AT', ascending=False)
         
     df_final = df_final.drop_duplicates(subset=['OS_KEY'], keep='first')
-    
-    # Enriquecimento de Localização para as OS Encerradas também!
     df_final = enriquecer_localizacao_os(df_final)
     
     return df_final
@@ -263,10 +286,8 @@ def carregar_todas_atividades(nome_pasta="03.Atividades"):
         
     df_final = df_final.drop_duplicates()
 
-    # --- BLINDAGEM DE DATAS NA ATIVIDADE ---
     for col in df_final.columns:
         if any(palavra in col for palavra in ['ATUALIZA', 'DATA', 'CRIADO', 'ABERTURA', 'ENCERRAMENTO']):
-            # Força string, corta textos indesejados e converte com dayfirst=True
             df_final[col] = pd.to_datetime(df_final[col].astype(str).str.split(',').str[-1].str.strip(), errors='coerce', dayfirst=True)
 
     return df_final
@@ -278,18 +299,6 @@ def limpar_dimensao_equipamentos(df_inventario_bruto):
     if df_inventario_bruto.empty: return pd.DataFrame()
     df = df_inventario_bruto.copy()
     
-    if 'EQUIP_KEY' not in df.columns:
-        col_serie = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df.columns), None)
-        col_id = next((c for c in ['IDENTIFICADOR', 'ID'] if c in df.columns), None)
-        def gerar_key(row):
-            sn = str(row[col_serie]).strip().upper() if col_serie and pd.notna(row[col_serie]) else ''
-            id_val = str(row[col_id]).strip().upper() if col_id and pd.notna(row[col_id]) else ''
-            if sn and sn != 'NAN': return f"SN:{sn}"
-            if id_val and id_val != 'NAN': return f"ID:{id_val}"
-            return None
-        df['EQUIP_KEY'] = df.apply(gerar_key, axis=1)
-        
-    df = df[df['EQUIP_KEY'].notna() & (df['EQUIP_KEY'].str.strip() != '')]
     mapeamento_colunas = {
         "N. SÉRIE": "N.º SÉRIE", "Nº SÉRIE": "N.º SÉRIE", "NUMERO DE SERIE": "N.º SÉRIE", "NÚMERO DE SÉRIE": "N.º SÉRIE",
         "Nº PATRIMÔNIO": "PATRIMÔNIO", "N. PATRIMÔNIO": "PATRIMÔNIO", "BAIXADO?": "BAIXADO", "DESATIVADO?": "DESATIVADO",
@@ -298,6 +307,33 @@ def limpar_dimensao_equipamentos(df_inventario_bruto):
         "UNID. SAUDE": "UNID. SAÚDE", "UNIDADE DE SAÚDE": "UNID. SAÚDE", "U.S.": "UNID. SAÚDE", "ULTIMA MP": "ÚLTIMA MP"
     }
     df = df.rename(columns=mapeamento_colunas)
+    
+    # Assegura a padronização precoce da localização do inventário
+    col_loc_inv = next((c for c in df.columns if 'LOCALI' in c or 'SETOR' in c), None)
+    if col_loc_inv and 'LOCALIZAÇÃO FÍSICA' not in df.columns:
+        df['LOCALIZAÇÃO FÍSICA'] = df[col_loc_inv]
+        
+    if 'LOCALIZAÇÃO FÍSICA' in df.columns:
+        df['LOCALIZAÇÃO FÍSICA'] = df['LOCALIZAÇÃO FÍSICA'].astype(str).str.upper().str.strip()
+
+    if 'EQUIP_KEY' not in df.columns:
+        col_serie = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE', 'SERIE'] if c in df.columns), None)
+        col_id = next((c for c in ['IDENTIFICADOR', 'ID'] if c in df.columns), None)
+        
+        def gerar_key(row):
+            def limpar_val_int(val):
+                if pd.isna(val): return ''
+                v = str(val).strip().upper()
+                if v.endswith('.0'): v = v[:-2]
+                return v if v not in ['NAN', ''] else ''
+            sn = limpar_val_int(row[col_serie]) if col_serie else ''
+            id_val = limpar_val_int(row[col_id]) if col_id else ''
+            if sn: return f"SN:{sn}"
+            if id_val: return f"ID:{id_val}"
+            return None
+        df['EQUIP_KEY'] = df.apply(gerar_key, axis=1)
+        
+    df = df[df['EQUIP_KEY'].notna() & (df['EQUIP_KEY'].str.strip() != '')]
     
     def normalizar_sim_nao(valor):
         if pd.isna(valor): return "NÃO"
@@ -329,7 +365,6 @@ def limpar_dimensao_equipamentos(df_inventario_bruto):
     df = df.drop(columns=['STATUS_RANK'])
     
     if 'ÚLTIMA MP' in df.columns:
-        # Adicionado dayfirst=True
         datas_texto = pd.to_datetime(df['ÚLTIMA MP'], errors='coerce', dayfirst=True)
         numeros_excel = pd.to_numeric(df['ÚLTIMA MP'], errors='coerce')
         datas_excel = pd.to_datetime(numeros_excel, origin='1899-12-30', unit='D', errors='coerce')
@@ -342,14 +377,13 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
     df_inv = df_inventario.copy()
     hoje = pd.Timestamp(datetime.today().date())
     
-    # Adicionado dayfirst=True
     if 'AQUISIÇÃO' in df_inv.columns: df_inv['AQUISIÇÃO'] = pd.to_datetime(df_inv['AQUISIÇÃO'], errors='coerce', dayfirst=True)
     if 'GARANTIA' in df_inv.columns: df_inv['GARANTIA'] = pd.to_datetime(df_inv['GARANTIA'], errors='coerce', dayfirst=True)
     
     if not df_os_encerradas.empty:
         df_os = df_os_encerradas.copy()
         col_id_os = 'IDENTIFICADOR' if 'IDENTIFICADOR' in df_os.columns else 'ID'
-        col_serie_os = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'SÉRIE'] if c in df_os.columns), 'SÉRIE')
+        col_serie_os = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE', 'SERIE'] if c in df_os.columns), 'SÉRIE')
         col_prog_os = next((c for c in ['PROGRAMA MP', 'PROGRAMA'] if c in df_os.columns), 'PROGRAMA')
         col_data_os = 'ENCERRAMENTO'
         
@@ -357,7 +391,6 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
         
         if col_id_os in df_os.columns and col_serie_os in df_os.columns and col_prog_os in df_os.columns:
             df_os_filtrado = df_os[df_os[col_id_os].notna() & df_os[col_serie_os].notna() & df_os[col_prog_os].str.upper().str.strip().isin(programas_interesse)].copy()
-            # Adicionado dayfirst=True
             df_os_filtrado[col_data_os] = pd.to_datetime(df_os_filtrado[col_data_os], errors='coerce', dayfirst=True)
             df_max_datas = df_os_filtrado.groupby([col_id_os, col_serie_os, col_prog_os])[col_data_os].max().unstack(level=col_prog_os).reset_index()
             df_max_datas = df_max_datas.rename(columns={col_id_os: 'IDENTIFICADOR', col_serie_os: 'N.º SÉRIE'})
@@ -366,7 +399,6 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
     colunas_mps = ["PREVENTIVA", "CALIBRAÇÃO", "SEGURANÇA ELÉTRICA", "INSPEÇÃO E TESTE OPERACIONAL", "VALIDAÇÃO", "QUALIFICAÇÃO TÉRMICA"]
     for col in colunas_mps:
         if col not in df_inv.columns: df_inv[col] = pd.NaT
-        # Adicionado dayfirst=True
         else: df_inv[col] = pd.to_datetime(df_inv[col], errors='coerce', dayfirst=True)
         
     is_novo = (df_inv['AQUISIÇÃO'] >= (hoje - pd.DateOffset(months=6))) if 'AQUISIÇÃO' in df_inv.columns else pd.Series(False, index=df_inv.index)
@@ -380,7 +412,6 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
         df_inv[f'Ordem Status {tipo_mp}'] = np.select(condicoes, [7, 1, 2, 3, 4, 5], default=6)
         
     if 'ÚLTIMA MP' in df_inv.columns:
-        # Adicionado dayfirst=True
         df_inv['ÚLTIMA MP'] = pd.to_datetime(df_inv['ÚLTIMA MP'], errors='coerce', dayfirst=True)
         dias_ultima_mp = (hoje - df_inv['ÚLTIMA MP']).dt.days
         cond_mp_geral = [is_isento_nr & df_inv['ÚLTIMA MP'].isna(), df_inv['ÚLTIMA MP'].isna(), dias_ultima_mp > 730, dias_ultima_mp > 365, dias_ultima_mp >= 320, dias_ultima_mp >= 275]
@@ -389,7 +420,6 @@ def enriquecer_base_inventario(df_inventario, df_os_encerradas):
         df_inv['Ordem Status MP'] = np.where(is_isento_nr, 7, 1)
         
     if 'AQUISIÇÃO' in df_inv.columns:
-        # Adicionado fillna(0) para evitar que NaN quebre as comparações abaixo
         df_inv['Idade Equipamento Num'] = np.round((hoje - df_inv['AQUISIÇÃO']).dt.days / 365.25, 2).fillna(0)
         df_inv['Faixa de Idade'] = np.select([df_inv['Idade Equipamento Num'] > 10, df_inv['Idade Equipamento Num'] >= 8, df_inv['Idade Equipamento Num'] >= 5, df_inv['Idade Equipamento Num'] >= 3], ["> 10 anos", "8 a 10 anos", "5 a 8 anos", "3 a 5 anos"], default="0 a 3 anos")
         df_inv['Ordem Faixa Idade'] = np.select([df_inv['Idade Equipamento Num'] > 10, df_inv['Idade Equipamento Num'] >= 8, df_inv['Idade Equipamento Num'] >= 5, df_inv['Idade Equipamento Num'] >= 3], [5, 4, 3, 2], default=1)
