@@ -101,15 +101,20 @@ tipos_disponiveis = sorted(df_inv['DESCRIÇÃO'].dropna().unique()) if not df_in
 filtro_local = st.sidebar.multiselect("Localização", locais_disponiveis, placeholder="Todos os setores")
 filtro_tipo = st.sidebar.multiselect("Tipo de Equipamento", tipos_disponiveis, placeholder="Todos os tipos")
 
-if filtro_local and not df_inv.empty: df_inv = df_inv[df_inv['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
-if filtro_tipo and not df_inv.empty: df_inv = df_inv[df_inv['DESCRIÇÃO'].isin(filtro_tipo)]
+# A MÁGICA: Só aplica o filtro se o usuário escolheu algo E não escolheu tudo
+aplicar_filtro_local = len(filtro_local) > 0 and len(filtro_local) < len(locais_disponiveis)
+aplicar_filtro_tipo = len(filtro_tipo) > 0 and len(filtro_tipo) < len(tipos_disponiveis)
+
+if aplicar_filtro_local and not df_inv.empty: df_inv = df_inv[df_inv['LOCALIZAÇÃO FÍSICA'].isin(filtro_local)]
+if aplicar_filtro_tipo and not df_inv.empty: df_inv = df_inv[df_inv['DESCRIÇÃO'].isin(filtro_tipo)]
 
 if not df_pend_bruto.empty:
     df_pend = df_pend_bruto.copy()
     c_loc_p = get_col(df_pend, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO'])
     c_tip_p = get_col(df_pend, ['TIPO EQUIPAMENTO', 'EQUIPAMENTO', 'DESCRIÇÃO'])
-    if filtro_local and c_loc_p: df_pend = df_pend[df_pend[c_loc_p].isin(filtro_local)]
-    if filtro_tipo and c_tip_p:  df_pend = df_pend[df_pend[c_tip_p].isin(filtro_tipo)]
+    
+    if aplicar_filtro_local and c_loc_p: df_pend = df_pend[df_pend[c_loc_p].isin(filtro_local)]
+    if aplicar_filtro_tipo and c_tip_p:  df_pend = df_pend[df_pend[c_tip_p].isin(filtro_tipo)]
     
     col_abertura_p = get_col(df_pend, ['ABERTURA', 'DATA ABERTURA'])
     if col_abertura_p:
@@ -136,8 +141,9 @@ if not df_enc_bruto.empty:
     df_enc = df_enc_bruto.copy()
     c_loc_e = get_col(df_enc, ['LOCALIZAÇÃO FÍSICA', 'LOCALIZAÇÃO'])
     c_tip_e = get_col(df_enc, ['TIPO EQUIPAMENTO', 'EQUIPAMENTO', 'DESCRIÇÃO'])
-    if filtro_local and c_loc_e: df_enc = df_enc[df_enc[c_loc_e].isin(filtro_local)]
-    if filtro_tipo and c_tip_e:  df_enc = df_enc[df_enc[c_tip_e].isin(filtro_tipo)]
+    
+    if aplicar_filtro_local and c_loc_e: df_enc = df_enc[df_enc[c_loc_e].isin(filtro_local)]
+    if aplicar_filtro_tipo and c_tip_e:  df_enc = df_enc[df_enc[c_tip_e].isin(filtro_tipo)]
 else:
     df_enc = pd.DataFrame()
 
