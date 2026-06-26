@@ -693,11 +693,29 @@ with tab_historico:
                 
                 if col_data_backlog and any(c in df_curva_fila.columns for c in colunas_faixa):
                     fig_faixa = go.Figure()
-                    cores_faixa = ['#70ad47', '#44546a', '#eeb022', '#ed7d31', '#5b9bd5']
+                    
+                    # Cores exatas do Power BI separadas em Linhas (Sólidas) e Preenchimentos (Transparentes 50%)
+                    cores_linha = ['#7BB071', '#C85A5A', '#5C668A', '#E5B64E', '#83AEDB']
+                    cores_fundo = ['rgba(123, 176, 113, 0.5)', 'rgba(200, 90, 90, 0.5)', 'rgba(92, 102, 138, 0.5)', 'rgba(229, 182, 78, 0.5)', 'rgba(131, 174, 219, 0.5)']
+                    
                     for idx, col in enumerate(colunas_faixa):
                         if col in df_curva_fila.columns:
-                            fig_faixa.add_trace(go.Scatter(x=df_curva_fila[col_data_backlog], y=df_curva_fila[col], name=col, mode='lines', stackgroup='one', line=dict(width=0), marker_color=cores_faixa[idx]))
-                    fig_faixa.update_layout(height=280, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5))
+                            fig_faixa.add_trace(go.Scatter(
+                                x=df_curva_fila[col_data_backlog], 
+                                y=df_curva_fila[col], 
+                                name=col, 
+                                mode='lines',
+                                fill='tozeroy', # Preenche até a base (sobreposto, sem empilhar)
+                                line=dict(width=2, color=cores_linha[idx]), 
+                                fillcolor=cores_fundo[idx]
+                            ))
+                            
+                    fig_faixa.update_layout(
+                        height=280, 
+                        margin=dict(l=0, r=0, t=10, b=0), 
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+                        hovermode="x unified" # Facilita ver todos os valores daquele dia ao passar o rato
+                    )
                     st.plotly_chart(fig_faixa, use_container_width=True)
                 else:
                     st.info("📊 Mapeando faixas históricas cronológicas... Envie o código do motor para sincronizar.")
