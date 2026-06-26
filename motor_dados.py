@@ -49,7 +49,7 @@ def ler_arquivo_gets(caminho_arq, colunas_alvo):
     return pd.DataFrame()
 
 # =====================================================================
-# 2. LÓGICA DE HISTÓRICO (FAIXA DE DIAS)
+# 2. LÓGICA DE HISTÓRICO (FAIXA DE DIAS E MÉTRICAS ACUMULADAS)
 # =====================================================================
 def extrair_data_do_nome(nome_arquivo):
     match = re.search(r'RelOSsPendentes(\d{4})(\d{2})(\d{2})', nome_arquivo)
@@ -82,22 +82,49 @@ def gerar_curva_backlog():
             
             c_os = next((c for c in df.columns if 'O.S.' in c or 'OS' in c), None)
             c_abert = next((c for c in df.columns if 'ABERTURA' in c), None)
+            c_critico = next((c for c in df.columns if 'CRITICO' in c or 'CRÍTICO' in c), None)
             
             if c_os and c_abert:
-                df['DT_ABERTURA'] = pd.to_datetime(df[c_abert].astype(str).str.split(',').str[-1], dayfirst=True, errors='coerce')
+                df['DT_ABERTURA'] = pd.to_datetime(df[c_abert].astype(str).str.split(',').str[-1].str.strip(), dayfirst=True, errors='coerce')
                 df = df.dropna(subset=['DT_ABERTURA'])
                 
                 df['DT_SNAP'] = data_ref
                 df['DIAS_ABERTO'] = (df['DT_SNAP'] - df['DT_ABERTURA']).dt.days
                 df['FAIXA_DIAS'] = df['DIAS_ABERTO'].apply(categorizar_faixa)
-                lista_dfs.append(df[['DT_SNAP', 'FAIXA_DIAS', 'DIAS_ABERTO', c_os]])
+                
+                if c_critico:
+                    df['IS_CRITICO'] = df[c_critico].astype(str).str.upper().str.strip() == 'SIM'
+                else:
+                    df['IS_CRITICO'] = False
+                    
+                lista_dfs.append(df[['DT_SNAP', 'FAIXA_DIAS', 'DIAS_ABERTO', 'IS_CRITICO', c_os]])
         except: continue
             
     if not lista_dfs: return pd.DataFrame()
     
     df_final = pd.concat(lista_dfs, ignore_index=True)
-    idx = pd.MultiIndex.from_product([df_final['DT_SNAP'].unique(), df_final['FAIXA_DIAS'].unique()], names=['DT_SNAP', 'FAIXA_DIAS'])
-    return df_final.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().reindex(idx, fill_value=0).reset_index(name='Volume')
+    
+    # 1. Montagem da matriz de faixas etárias de O.S. (Pivot)
+    df_counts = df_final.groupby(['DT_SNAP', 'FAIXA_DIAS']).size().unstack(fill_value=0)
+    
+    # Assegura a integridade estrutural das colunas mesmo se alguma faixa estiver zerada no dia
+    ordem_faixas = ['0 a 5 dias', '6 a 15 dias', '16 a 30 dias', '31 a 60 dias', 'Mais de 60 dias']
+    for faixa in ordem_faixas:
+        if faixa not in df_counts.columns:
+            df_counts[faixa] = 0
+    df_counts = df_counts[ordem_faixas]
+    
+    # 2. Consolidação de médias de dias abertos e somatório de ativos críticos
+    df_metrics = df_final.groupby('DT_SNAP').agg(
+        Tempo_Medio_Aberta=('DIAS_ABERTO', 'mean'),
+        Criticas=('IS_CRITICO', 'sum')
+    )
+    
+    # 3. Junção final e renomeação de colunas compatível com o Grid do Dashboard
+    df_res = pd.merge(df_counts, df_metrics, on='DT_SNAP').reset_index()
+    df_res = df_res.rename(columns={'DT_SNAP': 'Data', 'Tempo_Medio_Aberta': 'Tempo Médio Aberta', 'Criticas': 'Críticas'})
+    
+    return df_res
 
 # =====================================================================
 # 3. INGESTÃO DE DADOS E CRUZAMENTO COM INVENTÁRIO (BLINDADO)
@@ -118,7 +145,6 @@ def enriquecer_localizacao_os(df_os):
     """Substitui com precisão cirúrgica a localização da O.S. pela verdade do Inventário."""
     if df_os.empty: return df_os
     
-    # 1. Localizar pasta do inventário com segurança
     pasta_inv = "04.Inventário"
     caminho_gets = os.path.join(os.getcwd(), "planilhas_gets")
     if os.path.exists(caminho_gets):
@@ -129,7 +155,6 @@ def enriquecer_localizacao_os(df_os):
                 
     df_inv_bruto = carregar_mais_recente(pasta_inv)
     
-    # Vassoura e normalizadora de chaves de texto
     def limpar_val(val):
         if pd.isna(val): return ''
         s = str(val).strip().upper()
@@ -137,7 +162,6 @@ def enriquecer_localizacao_os(df_os):
         if s in ['NAN', 'N/I', 'N/A', 'NÃO INFORMADO', 'NONE', 'NCONSTA', '']: return ''
         return s
 
-    # 2. Se o inventário existir, constrói mapeamento de alta precisão
     if not df_inv_bruto.empty:
         df_inv = limpar_dimensao_equipamentos(df_inv_bruto)
         
@@ -156,7 +180,6 @@ def enriquecer_localizacao_os(df_os):
                 if sn_k: mapa_loc_sn[sn_k] = loc_val
                 if id_k: mapa_loc_id[id_k] = loc_val
 
-        # Identifica colunas correspondentes nas ordens de serviço
         col_serie_os = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE', 'SERIE'] if c in df_os.columns), None)
         col_id_os = next((c for c in ['IDENTIFICADOR', 'ID'] if c in df_os.columns), None)
 
@@ -164,12 +187,9 @@ def enriquecer_localizacao_os(df_os):
             sn_os = limpar_val(row[col_serie_os]) if col_serie_os else ''
             id_os = limpar_val(row[col_id_os]) if col_id_os else ''
             
-            # Prioridade 1: Casamento pelo número de série
             if sn_os and sn_os in mapa_loc_sn: return mapa_loc_sn[sn_os]
-            # Prioridade 2: Casamento pelo identificador/ID
             if id_os and id_os in mapa_loc_id: return mapa_loc_id[id_os]
             
-            # Fallback seguro caso a máquina não exista no Inventário
             orig = str(row.get('LOCALIZAÇÃO FÍSICA', 'NÃO INFORMADO')).strip().upper()
             return orig if orig not in ['NAN', 'NONE', ''] else 'NÃO INFORMADO'
 
@@ -180,7 +200,6 @@ def enriquecer_localizacao_os(df_os):
         else:
             df_os['LOCALIZAÇÃO FÍSICA'] = 'NÃO INFORMADO'
         
-    # 3. Consolidação Geral de Grafia (Fundir caixas duplicadas)
     dicionario_setores = {
         "BC": "BLOCO CIRÚRGICO",
         "BLOCO CIRURGICO": "BLOCO CIRÚRGICO",
@@ -204,7 +223,6 @@ def carregar_mais_recente(nome_pasta):
     if not arquivos: return pd.DataFrame()
     arq_recente = max(arquivos, key=os.path.getmtime)
     
-    # IMPORTANTE: Permitir que o inventário leia todas as colunas para capturar localização de forma nativa
     colunas = ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'LOCALIZACAO', 'SETOR'] if "Invent" in nome_pasta else COLUNAS_BUSCA_OS
     df = ler_arquivo_gets(arq_recente, colunas)
     
@@ -308,7 +326,6 @@ def limpar_dimensao_equipamentos(df_inventario_bruto):
     }
     df = df.rename(columns=mapeamento_colunas)
     
-    # Assegura a padronização precoce da localização do inventário
     col_loc_inv = next((c for c in df.columns if 'LOCALI' in c or 'SETOR' in c), None)
     if col_loc_inv and 'LOCALIZAÇÃO FÍSICA' not in df.columns:
         df['LOCALIZAÇÃO FÍSICA'] = df[col_loc_inv]
