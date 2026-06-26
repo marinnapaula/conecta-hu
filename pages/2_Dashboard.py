@@ -608,7 +608,7 @@ with tab_parque:
         c1.metric("Total Equipamentos Ativos", f"{total_ativos:,}".replace(",", "."))
         c2.metric("Críticos (> 10 anos)", f"{pct_critico_idade:.1f}%", f"{qtd_critico_idade} ativos antigos", delta_color="inverse")
         c3.metric("Conformidade (OK + Garantia)", f"{pct_mp_ok:.1f}%", "Meta: 100%")
-        c4.metric("Fora de Garantia", f"{(qtd_fora_garantia/total_ativos*100):.1f}%", f"{qtd_fora_rantia} ativos")
+        c4.metric("Fora de Garantia", f"{(qtd_fora_garantia/total_ativos*100):.1f}%", f"{qtd_fora_garantia} ativos")
 
         st.markdown("<br>", unsafe_allow_html=True)
         g1, g2 = st.columns(2)
