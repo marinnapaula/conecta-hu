@@ -35,7 +35,7 @@ else:
     data_cron = "Aguardando sincronização..."
 
 # =====================================================================
-# 1. FUNÇÃO EXCLUSIVA DE GERAÇÃO DE PDF COM GANTT 
+# 1. FUNÇÃO EXCLUSIVA DE GERAÇÃO DE PDF COM GANTT (VIGIOSP)
 # =====================================================================
 def gerar_pdf_relatorio(df, fig_grafico=None):
     buffer = BytesIO()
@@ -51,25 +51,18 @@ def gerar_pdf_relatorio(df, fig_grafico=None):
     cell_style = ParagraphStyle('TableCell', parent=styles['Normal'], fontSize=8, leading=10, alignment=0)
     
     story.append(Paragraph("<b>RELATÓRIO CONSOLIDADO DE MANUTENÇÃO PROGRAMADA</b>", title_style))
-    story.append(Paragraph(f"Documento de Evidência para Auditoria | HU-UNIVASF<br/>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
+    story.append(Paragraph(f"Documento de Evidência para Auditoria Sanitária | HU-UNIVASF<br/>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
     story.append(Spacer(1, 5))
     
-    # INSERE A FOTO DO GRÁFICO NO PDF COM PROPORÇÃO INTELIGENTE
     if fig_grafico is not None:
         try:
-            # Captura a altura real que o gráfico exige
             altura_real = fig_grafico.layout.height if fig_grafico.layout.height else 450
-            
-            # Tenta converter o Plotly para Imagem, dando bastante espaço (width 1200) para os nomes caberem
             img_bytes = fig_grafico.to_image(format="png", engine="kaleido", width=1200, height=altura_real)
             img_buffer = BytesIO(img_bytes)
             img_buffer.seek(0)
             
-            # Calcula a proporção para não esmagar a imagem na folha
             proporcao = altura_real / 1200
             altura_pdf = 720 * proporcao
-            
-            # Limite máximo de altura para não quebrar a página do PDF
             if altura_pdf > 380: altura_pdf = 380
             
             img_pdf = RLImage(img_buffer, width=720, height=altura_pdf) 
@@ -188,10 +181,10 @@ if not df_agenda.empty:
     df_agenda['Status'] = df_agenda.apply(calcular_status, axis=1)
     df_agenda = df_agenda[df_agenda['Status'] != 'CANCELADO']
 
-tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria"])
+tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria VIGIOSP"])
 
 # ---------------------------------------------------------------------
-# ABA 1: CALENDÁRIO OPERACIONAL (Mantido igual)
+# ABA 1: CALENDÁRIO OPERACIONAL
 # ---------------------------------------------------------------------
 with tab_calendario:
     st.info(f"🕒 **Última Atualização da Base:** {data_cron}")
@@ -244,7 +237,7 @@ with tab_calendario:
 
 
 # ---------------------------------------------------------------------
-# ABA 2: AUDITORIA 
+# ABA 2: AUDITORIA VIGIOSP
 # ---------------------------------------------------------------------
 with tab_auditoria:
     st.markdown("Rastreie as manutenções programadas inserindo diretamente os números de série ou patrimônios da lista da auditoria.")
@@ -355,7 +348,7 @@ with tab_auditoria:
                 df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
                 lista_auditoria.append(df_ag_aud)
 
-       # 4. Consolidação Geral e Ordenação
+        # 4. Consolidação Geral e Ordenação
         if lista_auditoria:
             df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
             df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce').dt.normalize()
@@ -370,25 +363,33 @@ with tab_auditoria:
             # Filtros Extras
             with st.container(border=True):
                 st.markdown("##### 🛠️ Controles de Exibição do Relatório")
-                col_f1, col_f2, col_f3 = st.columns(3)
+                # AGORA TEMOS 4 COLUNAS DE CONTROLE (NOVO FILTRO DE SERVIÇO AQUI)
+                col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+                
                 status_disp = df_auditoria['Status_Legenda'].unique().tolist()
                 filtro_status = col_f1.multiselect("Filtrar por Situação:", options=status_disp, default=status_disp)
                 
+                # Caixinhas de Serviço (Preventiva, Calibração, etc)
+                servicos_disp = sorted(df_auditoria['Serviço'].astype(str).unique().tolist())
+                filtro_servico = col_f2.multiselect("Tipo de Programa (Serviço):", options=servicos_disp, default=servicos_disp)
+                
                 min_date = df_auditoria['Data_Inicio'].min().date() if not df_auditoria.empty else datetime.today().date()
                 max_date = df_auditoria['Data_Inicio'].max().date() if not df_auditoria.empty else datetime.today().date()
-                filtro_periodo = col_f2.date_input("Filtrar por Período de Abertura:", value=(min_date, max_date), min_value=min_date, max_value=max_date, format="DD/MM/YYYY")
+                filtro_periodo = col_f3.date_input("Período de Abertura:", value=(min_date, max_date), min_value=min_date, max_value=max_date, format="DD/MM/YYYY")
+                
                 opcoes_ord = ["Data (Mais recente primeiro)", "Data (Mais antiga primeiro)", "Equipamento (A-Z)", "Situação Atual"]
-                ordenacao = col_f3.selectbox("Ordenar Tabela e Gráfico por:", opcoes_ord)
+                ordenacao = col_f4.selectbox("Ordenar Tabela/Gráfico por:", opcoes_ord)
                 
                 st.markdown("<hr style='margin: 5px 0px; border-top: 1px solid #e6e6e6;'>", unsafe_allow_html=True)
                 apenas_ultima = st.checkbox("🎯 Ocultar histórico antigo e mostrar apenas a **ÚLTIMA** manutenção executada de cada equipamento.")
 
             if filtro_status: df_auditoria = df_auditoria[df_auditoria['Status_Legenda'].isin(filtro_status)]
+            if filtro_servico: df_auditoria = df_auditoria[df_auditoria['Serviço'].astype(str).isin(filtro_servico)]
+            
             if len(filtro_periodo) == 2:
                 start_date, end_date = filtro_periodo
                 df_auditoria = df_auditoria[(df_auditoria['Data_Inicio'].dt.date >= start_date) & (df_auditoria['Data_Inicio'].dt.date <= end_date)]
             
-            # MÁGICA DO NOVO FILTRO: Mantém apenas a O.S. Executada mais recente de cada máquina
             if apenas_ultima and not df_auditoria.empty:
                 mask_exec = df_auditoria['Status'] == '✔️ Executado'
                 df_exec = df_auditoria[mask_exec].sort_values('Data_Inicio', ascending=False).drop_duplicates(subset=['Equip_ID'], keep='first')
