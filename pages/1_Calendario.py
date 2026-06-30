@@ -84,7 +84,7 @@ with col_logo2:
 st.markdown("---")
 
 # =====================================================================
-# 4. CARREGAMENTO DOS DADOS
+# 4. CARREGAMENTO DOS DADOS (AGENDAMENTO + HISTÓRICO + INVENTÁRIO + PENDENTES)
 # =====================================================================
 @st.cache_data(ttl=600)
 def carregar_dados_agenda(caminho_arquivo):
@@ -103,7 +103,7 @@ def carregar_inventario(): return carregar_mais_recente("04.Inventário")
 @st.cache_data(ttl=600)
 def carregar_pendentes(): return carregar_mais_recente("02.OS_Pendentes")
 
-with st.spinner("Sincronizando calendário, inventário e base de auditoria..."):
+with st.spinner("Sincronizando bancos de dados de auditoria..."):
     df_agenda = carregar_dados_agenda(caminho_atual)
     df_enc = carregar_historico_encerradas()
     df_inv = carregar_inventario()
@@ -203,175 +203,192 @@ with tab_calendario:
 
 
 # ---------------------------------------------------------------------
-# ABA 2: AUDITORIA VIGIOSP (SCATTER PLOT + SEM SELETOR)
+# ABA 2: AUDITORIA VIGIOSP (GANTT COM FILTROS COMPLETOS RETORNADOS)
 # ---------------------------------------------------------------------
 with tab_auditoria:
-    st.markdown("Rastreie as manutenções programadas inserindo diretamente os números de série ou patrimônios da lista da auditoria.")
+    st.markdown("Filtre o equipamento para rastrear as manutenções já executadas, as que estão em execução ativa e as próximas projetadas.")
     
     with st.container(border=True):
-        filtro_aud_sn = st.text_input("Número(s) de Série ou Patrimônio (Separe por vírgula):", placeholder="Cole aqui a lista... Ex: 59885V/00, HU-00923")
+        c_busca1, c_busca2 = st.columns([1.5, 1.5])
+        
+        # Consolida a lista de equipamentos para a caixinha de busca voltar
+        eq_disp = set()
+        c_desc_enc = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if not df_enc.empty and c in df_enc.columns), None)
+        if c_desc_enc: eq_disp.update(df_enc[c_desc_enc].dropna().unique())
+        
+        c_desc_ag = next((c for c in ['Tipo Equipamento', 'Tipo Equip.'] if not df_agenda.empty and c in df_agenda.columns), None)
+        if c_desc_ag: eq_disp.update(df_agenda[c_desc_ag].dropna().unique())
+        
+        # A CAIXINHA DE BUSCA VOLTOU SUPREMA AQUI:
+        filtro_aud_eq = c_busca1.multiselect("Filtrar por Tipo de Equipamento:", sorted(list(eq_disp)), placeholder="Busque os tipos alvo da auditoria...")
+        filtro_aud_sn = c_busca2.text_input("Número(s) de Série ou Patrimônio (Separe por vírgula):", placeholder="Ex: 59885V/00, HU-00923, 9876...")
 
-    if filtro_aud_sn:
+    if filtro_aud_eq or filtro_aud_sn:
         lista_auditoria = []
         padrao_sn = None
         
-        termos_iniciais = [s.strip() for s in filtro_aud_sn.split(',') if s.strip()]
-        termos_expandidos = set(termos_iniciais)
-        
-        if not df_inv.empty:
-            c_inv_sn = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_inv.columns), None)
-            c_inv_id = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_inv.columns), None)
+        if filtro_aud_sn:
+            import re
+            termos_iniciais = [s.strip() for s in filtro_aud_sn.split(',') if s.strip()]
+            termos_expandidos = set(termos_iniciais)
             
-            if c_inv_sn and c_inv_id:
-                mask_inv = df_inv[c_inv_sn].astype(str).isin(termos_iniciais) | df_inv[c_inv_id].astype(str).isin(termos_iniciais)
-                termos_expandidos.update(df_inv.loc[mask_inv, c_inv_sn].dropna().astype(str).tolist())
-                termos_expandidos.update(df_inv.loc[mask_inv, c_inv_id].dropna().astype(str).tolist())
+            if not df_inv.empty:
+                c_inv_sn = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_inv.columns), None)
+                c_inv_id = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_inv.columns), None)
+                
+                if c_inv_sn and c_inv_id:
+                    mask_inv = df_inv[c_inv_sn].astype(str).isin(termos_iniciais) | df_inv[c_inv_id].astype(str).isin(termos_iniciais)
+                    termos_expandidos.update(df_inv.loc[mask_inv, c_inv_sn].dropna().astype(str).tolist())
+                    termos_expandidos.update(df_inv.loc[mask_inv, c_inv_id].dropna().astype(str).tolist())
+            
+            termos_expandidos.discard('')
+            termos_expandidos.discard('nan')
+            termos_expandidos.discard('N/I')
+            termos_expandidos.discard('None')
+            
+            if termos_expandidos:
+                padrao_sn = '|'.join([re.escape(t) for t in termos_expandidos])
         
-        termos_expandidos.discard('')
-        termos_expandidos.discard('nan')
-        termos_expandidos.discard('N/I')
-        termos_expandidos.discard('None')
-        
-        if termos_expandidos:
-            padrao_sn = '|'.join([re.escape(t) for t in termos_expandidos])
-    
-        if padrao_sn:
-            # 1. Puxando o Passado (O.S. Encerradas)
-            if not df_enc.empty:
-                df_enc_aud = df_enc.copy()
-                c_os = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_enc_aud.columns), None)
-                c_sn_enc = next((c for c in ['N. SÉRIE', 'N.º SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_enc_aud.columns), None)
-                c_ab = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_enc_aud.columns), None)
-                c_en = next((c for c in ['ENCERRAMENTO', 'DATA ENCERRAMENTO'] if c in df_enc_aud.columns), None)
-                c_cl = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_enc_aud.columns), None)
-                c_desc_enc = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if c in df_enc_aud.columns), None)
+        # 1. VIA DO PASSADO: O.S. Encerradas (Filtrado estritamente por Programadas)
+        if not df_enc.empty:
+            df_enc_aud = df_enc.copy()
+            c_os = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_enc_aud.columns), None)
+            c_sn_enc = next((c for c in ['N. SÉRIE', 'N.º SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_enc_aud.columns), None)
+            c_ab = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_enc_aud.columns), None)
+            c_en = next((c for c in ['ENCERRAMENTO', 'DATA ENCERRAMENTO'] if c in df_enc_aud.columns), None)
+            c_cl = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_enc_aud.columns), None)
 
+            if c_desc_enc and filtro_aud_eq: df_enc_aud = df_enc_aud[df_enc_aud[c_desc_enc].isin(filtro_aud_eq)]
+            
+            if padrao_sn: 
                 mask_sn = df_enc_aud[c_sn_enc].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_sn_enc else False
                 c_id_enc = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_enc_aud.columns), None)
                 mask_id = df_enc_aud[c_id_enc].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_enc else False
                 df_enc_aud = df_enc_aud[mask_sn | mask_id]
-                
-                if c_cl and not df_enc_aud.empty:
-                    df_enc_aud = df_enc_aud[df_enc_aud[c_cl].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA|SEGURANÇA|INSPEÇÃO|TESTE|VALIDAÇÃO|QUALIFICAÇÃO')]
-                
-                if not df_enc_aud.empty and all([c_os, c_desc_enc, c_sn_enc, c_ab, c_en, c_cl]):
-                    df_enc_aud = df_enc_aud[[c_os, c_desc_enc, c_sn_enc, c_ab, c_en, c_cl]].copy()
-                    df_enc_aud.rename(columns={c_os: 'O.S.', c_desc_enc: 'DESCRIÇÃO', c_sn_enc: 'N.º SÉRIE', c_ab: 'Data_Inicio', c_en: 'Data_Fim', c_cl: 'Serviço'}, inplace=True)
-                    df_enc_aud['Status'] = '✔️ Executado'
-                    lista_auditoria.append(df_enc_aud)
+            
+            if c_cl and not df_enc_aud.empty:
+                df_enc_aud = df_enc_aud[df_enc_aud[c_cl].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA|SEGURANÇA|INSPEÇÃO|TESTE|VALIDAÇÃO|QUALIFICAÇÃO')]
+            
+            if not df_enc_aud.empty and all([c_os, c_desc_enc, c_sn_enc, c_ab, c_en, c_cl]):
+                df_enc_aud = df_enc_aud[[c_os, c_desc_enc, c_sn_enc, c_ab, c_en, c_cl]].copy()
+                df_enc_aud.rename(columns={c_os: 'O.S.', c_desc_enc: 'DESCRIÇÃO', c_sn_enc: 'N.º SÉRIE', c_ab: 'Data_Inicio', c_en: 'Data_Fim', c_cl: 'Serviço'}, inplace=True)
+                df_enc_aud['Status'] = '✔️ Executado'
+                lista_auditoria.append(df_enc_aud)
 
-            # 2. VIA DO PRESENTE: O.S. Pendentes (Em Execução)
-            if not df_pend_bruto.empty:
-                df_p_aud = df_pend_bruto.copy()
-                c_os_p = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_p_aud.columns), None)
-                c_sn_p = next((c for c in ['N. SÉRIE', 'N.º SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_p_aud.columns), None)
-                c_ab_p = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_p_aud.columns), None)
-                c_cl_p = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_p_aud.columns), None)
-                c_est_p = next((c for c in ['ESTADO', 'STATUS', 'SITUAÇÃO'] if c in df_p_aud.columns), None)
-                c_desc_p = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if c in df_p_aud.columns), None)
+        # 2. VIA DO PRESENTE: O.S. Pendentes (Em Execução)
+        if not df_pend_bruto.empty:
+            df_p_aud = df_pend_bruto.copy()
+            c_os_p = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_p_aud.columns), None)
+            c_sn_p = next((c for c in ['N. SÉRIE', 'N.º SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_p_aud.columns), None)
+            c_ab_p = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_p_aud.columns), None)
+            c_cl_p = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_p_aud.columns), None)
+            c_est_p = next((c for c in ['ESTADO', 'STATUS', 'SITUAÇÃO'] if c in df_p_aud.columns), None)
+            
+            c_desc_p = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if c in df_p_aud.columns), None)
 
+            if c_desc_p and filtro_aud_eq: df_p_aud = df_p_aud[df_p_aud[c_desc_p].isin(filtro_aud_eq)]
+            
+            if padrao_sn: 
                 mask_sn = df_p_aud[c_sn_p].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_sn_p else False
                 c_id_p = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_p_aud.columns), None)
                 mask_id = df_p_aud[c_id_p].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_p else False
                 df_p_aud = df_p_aud[mask_sn | mask_id]
-                    
-                if c_cl_p and not df_p_aud.empty:
-                    df_p_aud = df_p_aud[df_p_aud[c_cl_p].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA|SEGURANÇA|INSPEÇÃO|TESTE|VALIDAÇÃO|QUALIFICAÇÃO')]
-
-                if not df_p_aud.empty and all([c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p]):
-                    df_p_aud = df_p_aud[[c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p, c_est_p]].copy() if c_est_p else df_p_aud[[c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p]].copy()
-                    df_p_aud.rename(columns={c_os_p: 'O.S.', c_desc_p: 'DESCRIÇÃO', c_sn_p: 'N.º SÉRIE', c_ab_p: 'Data_Inicio', c_cl_p: 'Serviço'}, inplace=True)
-                    df_p_aud['Data_Fim'] = pd.Timestamp(datetime.today().date())
-                    
-                    if c_est_p:
-                        df_p_aud['Status'] = '⚙️ Em Execução (' + df_p_aud[c_est_p].astype(str).str.strip().str.upper() + ')'
-                    else:
-                        df_p_aud['Status'] = '⚙️ Em Execução'
-                        
-                    df_p_aud.drop(columns=[c_est_p], inplace=True, errors='ignore')
-                    lista_auditoria.append(df_p_aud)
-
-            # 3. VIA DO FUTURO: Agendamento MP
-            if not df_agenda.empty:
-                df_ag_aud = df_agenda.copy()
-                c_sn_ag = next((c for c in ['N° Série', 'Nº Série', 'N. Série', 'N.Série'] if c in df_ag_aud.columns), None)
-                c_id_ag = next((c for c in ['ID', 'Identificador', 'Patrimônio', 'Patrimonio'] if c in df_ag_aud.columns), None)
-                c_desc_ag = next((c for c in ['Tipo Equipamento', 'Tipo Equip.'] if c in df_ag_aud.columns), None)
                 
-                if c_sn_ag: df_ag_aud['N.º SÉRIE'] = df_ag_aud[c_sn_ag].fillna('N/I').astype(str).str.strip()
-                else: df_ag_aud['N.º SÉRIE'] = 'N/I'
-                    
-                df_ag_aud['N.º SÉRIE'] = df_ag_aud['N.º SÉRIE'].replace({'nan': 'N/I', 'None': 'N/I', '': 'N/I'})
+            if c_cl_p and not df_p_aud.empty:
+                df_p_aud = df_p_aud[df_p_aud[c_cl_p].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA|SEGURANÇA|INSPEÇÃO|TESTE|VALIDAÇÃO|QUALIFICAÇÃO')]
+
+            if not df_p_aud.empty and all([c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p]):
+                df_p_aud = df_p_aud[[c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p, c_est_p]].copy() if c_est_p else df_p_aud[[c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p]].copy()
+                df_p_aud.rename(columns={c_os_p: 'O.S.', c_desc_p: 'DESCRIÇÃO', c_sn_p: 'N.º SÉRIE', c_ab_p: 'Data_Inicio', c_cl_p: 'Serviço'}, inplace=True)
+                df_p_aud['Data_Fim'] = pd.Timestamp(datetime.today().date())
                 
+                if c_est_p:
+                    df_p_aud['Status'] = '⚙️ Em Execução (' + df_p_aud[c_est_p].astype(str).str.strip().str.upper() + ')'
+                else:
+                    df_p_aud['Status'] = '⚙️ Em Execução'
+                    
+                df_p_aud.drop(columns=[c_est_p], inplace=True, errors='ignore')
+                lista_auditoria.append(df_p_aud)
+
+        # 3. VIA DO FUTURO: Agendamento MP
+        if not df_agenda.empty:
+            df_ag_aud = df_agenda.copy()
+            c_sn_ag = next((c for c in ['N° Série', 'Nº Série', 'N. Série', 'N.Série'] if c in df_ag_aud.columns), None)
+            c_id_ag = next((c for c in ['ID', 'Identificador', 'Patrimônio', 'Patrimonio'] if c in df_ag_aud.columns), None)
+            
+            if c_desc_ag and filtro_aud_eq: df_ag_aud = df_ag_aud[df_ag_aud[c_desc_ag].isin(filtro_aud_eq)]
+            
+            if c_sn_ag: df_ag_aud['N.º SÉRIE'] = df_ag_aud[c_sn_ag].fillna('N/I').astype(str).str.strip()
+            else: df_ag_aud['N.º SÉRIE'] = 'N/I'
+                
+            df_ag_aud['N.º SÉRIE'] = df_ag_aud['N.º SÉRIE'].replace({'nan': 'N/I', 'None': 'N/I', '': 'N/I'})
+            
+            if padrao_sn: 
                 mask_sn = df_ag_aud['N.º SÉRIE'].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True)
                 mask_id = df_ag_aud[c_id_ag].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_ag else False
                 df_ag_aud = df_ag_aud[mask_sn | mask_id]
+            
+            c_data_ag = next((c for c in ['Data Agendamento', 'Data'] if c in df_ag_aud.columns), None)
+            c_nome_ag = next((c for c in ['Nome', 'Serviço'] if c in df_ag_aud.columns), None)
+
+            if not df_ag_aud.empty and c_desc_ag and c_data_ag and c_nome_ag:
+                df_ag_aud = df_ag_aud[[c_desc_ag, 'N.º SÉRIE', c_data_ag, c_nome_ag, 'Status']].copy()
+                df_ag_aud.rename(columns={c_desc_ag: 'DESCRIÇÃO', c_data_ag: 'Data_Inicio', c_nome_ag: 'Serviço'}, inplace=True)
+                df_ag_aud['O.S.'] = 'AGENDADO'
+                df_ag_aud['Data_Fim'] = df_ag_aud['Data_Inicio'] 
+                df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
+                lista_auditoria.append(df_ag_aud)
+
+        # 4. Consolidação Geral e Plotagem (GANTT PADRONIZADO EM 15 DIAS)
+        if lista_auditoria:
+            df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
+            df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce').dt.normalize()
+            df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce').dt.normalize()
+            df_auditoria = df_auditoria.dropna(subset=['Data_Inicio']).sort_values('Data_Inicio', ascending=False)
+            
+            # VOLTA DO GANTT COM LARGURA PADRÃO EM BLOCO FIXO:
+            df_auditoria['Data_Fim_Vis'] = df_auditoria['Data_Inicio'] + pd.Timedelta(days=15)
+            
+            df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
+            df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
+            df_auditoria['Status_Legenda'] = df_auditoria['Status'].apply(lambda x: '⚙️ Em Execução' if 'Em Execução' in str(x) else x)
+
+            with st.container(border=True):
+                st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
                 
-                c_data_ag = next((c for c in ['Data Agendamento', 'Data'] if c in df_ag_aud.columns), None)
-                c_nome_ag = next((c for c in ['Nome', 'Serviço'] if c in df_ag_aud.columns), None)
-
-                if not df_ag_aud.empty and c_desc_ag and c_data_ag and c_nome_ag:
-                    df_ag_aud = df_ag_aud[[c_desc_ag, 'N.º SÉRIE', c_data_ag, c_nome_ag, 'Status']].copy()
-                    df_ag_aud.rename(columns={c_desc_ag: 'DESCRIÇÃO', c_data_ag: 'Data_Inicio', c_nome_ag: 'Serviço'}, inplace=True)
-                    df_ag_aud['O.S.'] = 'AGENDADO'
-                    df_ag_aud['Data_Fim'] = df_ag_aud['Data_Inicio'] 
-                    df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
-                    lista_auditoria.append(df_ag_aud)
-
-            # 4. Consolidação Geral e Plotagem (Scatter Plot limpo sem duplicador)
-            if lista_auditoria:
-                df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
-                df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce').dt.normalize()
-                df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce').dt.normalize()
-                df_auditoria = df_auditoria.dropna(subset=['Data_Inicio']).sort_values(['DESCRIÇÃO', 'Data_Inicio'], ascending=[True, False])
+                cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
                 
-                df_auditoria['Status_Legenda'] = df_auditoria['Status'].apply(lambda x: '⚙️ Em Execução' if 'Em Execução' in str(x) else x)
-                df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
-                df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
+                fig_gantt = px.timeline(
+                    df_auditoria, x_start="Data_Inicio", x_end="Data_Fim_Vis", y="Equip_ID", color="Status_Legenda",
+                    color_discrete_map=cores_status, hover_name="O.S.", hover_data={"Serviço": True, "Status": True, "Status_Legenda": False, "Data_Fim_Vis": False}
+                )
+                fig_gantt.update_yaxes(autorange="reversed")
+                
+                # MANTÉM O DUPLICADOR CINZA DESLIGADO (REMOÇÃO ABSOLUTA DO BLOCÃO):
+                fig_gantt.update_xaxes(rangeslider_visible=False)
+                
+                fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 60), margin=dict(l=0, r=0, t=10, b=0))
+                st.plotly_chart(fig_gantt, use_container_width=True)
 
-                with st.container(border=True):
-                    st.markdown("##### 📍 Linha do Tempo de Intervenções (Marcos de Manutenção)")
-                    
-                    cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
-                    simbolos_status = {'✔️ Executado': 'circle', '⏳ Programado': 'diamond', '⚠️ Atrasado': 'x', '⚙️ Em Execução': 'star'}
-                    
-                    fig_gantt = px.scatter(
-                        df_auditoria, x="Data_Inicio", y="Equip_ID", color="Status_Legenda", 
-                        color_discrete_map=cores_status, symbol="Status_Legenda", symbol_map=simbolos_status,
-                        hover_name="O.S.", hover_data={"Status": True, "Serviço": True, "Status_Legenda": False, "Data_Inicio": "|%d/%m/%Y"} 
-                    )
-                    
-                    fig_gantt.update_traces(marker=dict(size=14, line=dict(width=1, color='DarkSlateGrey')))
-                    
-                    # Sem a barra de arrastar dupla embaixo
-                    fig_gantt.update_xaxes(rangeslider_visible=False, showgrid=True, gridwidth=1, gridcolor='#f0f0f0', title="")
-                    fig_gantt.update_yaxes(autorange="reversed", showgrid=True, gridwidth=1, gridcolor='#e6e6e6', title="")
-                    
-                    altura_grafico = max(400, len(df_auditoria['Equip_ID'].unique()) * 45)
-                    fig_gantt.update_layout(height=altura_grafico, margin=dict(l=0, r=0, t=10, b=0), legend_title_text="")
-                    st.plotly_chart(fig_gantt, use_container_width=True)
-
-                with st.container(border=True):
-                    st.markdown("##### 📋 Relatório Consolidado de Engenharia Clínica")
-                    st.caption("Pressione **Ctrl + P** e escolha 'Salvar como PDF' para exportar esta visão combinada.")
-                    
-                    df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
-                    df_print['Data_Inicio'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
-                    
-                    df_print['Conclusão Real'] = np.select(
-                        [df_print['O.S.'] == 'AGENDADO', df_print['Status'].str.contains('Execução')],
-                        ['-', 'EM ABERTO'],
-                        default=df_print['Data_Fim'].dt.strftime('%d/%m/%Y')
-                    )
-                    
-                    df_print.drop(columns=['Data_Fim'], inplace=True)
-                    df_print.rename(columns={'Data_Inicio': 'Abertura / Prevista'}, inplace=True)
-                    df_print['Conclusão Real'] = df_print['Conclusão Real'].replace({'NaT': '-', 'nan': '-'})
-                    
-                    st.dataframe(df_print, use_container_width=True, hide_index=True)
-            else:
-                st.warning("Nenhum histórico encontrado para os parâmetros informados.")
+            with st.container(border=True):
+                st.markdown("##### 📋 Relatório Consolidado de Engenharia Clínica")
+                st.caption("Pressione **Ctrl + P** e escolha 'Salvar como PDF' para exportar esta visão combinada.")
+                
+                df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
+                df_print['Data_Inicio'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
+                
+                df_print['Conclusão Real'] = np.select(
+                    [df_print['O.S.'] == 'AGENDADO', df_print['Status'].str.contains('Execução')],
+                    ['-', 'EM ABERTO'],
+                    default=df_print['Data_Fim'].dt.strftime('%d/%m/%Y')
+                )
+                
+                df_print.drop(columns=['Data_Fim'], inplace=True)
+                df_print.rename(columns={'Data_Inicio': 'Abertura / Prevista'}, inplace=True)
+                df_print['Conclusão Real'] = df_print['Conclusão Real'].replace({'NaT': '-', 'nan': '-'})
+                
+                st.dataframe(df_print, use_container_width=True, hide_index=True)
         else:
-            st.info("Padrão de busca inválido ou não encontrado no inventário.")
+            st.warning("Nenhum histórico encontrado para os parâmetros informados.")
     else:
-        st.info("👈 Cole a lista de números de série ou patrimônios acima para gerar o relatório de auditoria.")
+        st.info("👈 Selecione o equipamento ou cole a lista de séries/patrimônios acima para gerar o relatório de auditoria.")
