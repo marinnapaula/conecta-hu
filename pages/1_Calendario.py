@@ -206,6 +206,7 @@ with tab_auditoria:
     with st.container(border=True):
         c_busca1, c_busca2 = st.columns([1.5, 1.5])
         
+        # Consolida lista de equipamentos buscando as colunas EXATAS informadas
         eq_disp = set()
         c_desc_enc = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if not df_enc.empty and c in df_enc.columns), None)
         if c_desc_enc: eq_disp.update(df_enc[c_desc_enc].dropna().unique())
@@ -214,19 +215,20 @@ with tab_auditoria:
         if c_desc_ag: eq_disp.update(df_agenda[c_desc_ag].dropna().unique())
         
         filtro_aud_eq = c_busca1.multiselect("Equipamento(s):", sorted(list(eq_disp)), placeholder="Busque os equipamentos alvo da auditoria...")
+        
+        # CAIXA INTELIGENTE DE MULTI-BUSCA POR VÍRGULA
         filtro_aud_sn = c_busca2.text_input("Número(s) de Série ou Patrimônio (Separe por vírgula):", placeholder="Ex: 59885V/00, HU-00923, 9876...")
 
     if filtro_aud_eq or filtro_aud_sn:
         lista_auditoria = []
         padrao_sn = None
         
-        # MÁGICA: SUPER BUSCA CRUZADA COM INVENTÁRIO
+        # SUPER BUSCA CRUZADA COM INVENTÁRIO
         if filtro_aud_sn:
             import re
             termos_iniciais = [s.strip() for s in filtro_aud_sn.split(',') if s.strip()]
             termos_expandidos = set(termos_iniciais)
             
-            # Se a VIGIOSP der Patrimônio, achamos o N/S. Se der o N/S, achamos o Patrimônio.
             if not df_inv.empty:
                 c_inv_sn = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_inv.columns), None)
                 c_inv_id = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_inv.columns), None)
@@ -261,6 +263,10 @@ with tab_auditoria:
                 mask_id = df_enc_aud[c_id_enc].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_enc else False
                 df_enc_aud = df_enc_aud[mask_sn | mask_id]
             
+            # FILTRO DA ALIANÇA: Garante que só entram as Executadas que forem do plano programado (Ignora Corretivas/Quebras)
+            if c_cl and not df_enc_aud.empty:
+                df_enc_aud = df_enc_aud[df_enc_aud[c_cl].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA|SEGURANÇA|INSPEÇÃO|TESTE|VALIDAÇÃO|QUALIFICAÇÃO')]
+            
             if not df_enc_aud.empty and all([c_os, c_desc_enc, c_sn_enc, c_ab, c_en, c_cl]):
                 df_enc_aud = df_enc_aud[[c_os, c_desc_enc, c_sn_enc, c_ab, c_en, c_cl]].copy()
                 df_enc_aud.rename(columns={c_os: 'O.S.', c_desc_enc: 'DESCRIÇÃO', c_sn_enc: 'N.º SÉRIE', c_ab: 'Data_Inicio', c_en: 'Data_Fim', c_cl: 'Serviço'}, inplace=True)
@@ -275,10 +281,8 @@ with tab_auditoria:
             c_sn_ag = next((c for c in ['N° Série', 'Nº Série', 'N. Série', 'N.Série'] if c in df_ag_aud.columns), None)
             c_id_ag = next((c for c in ['ID', 'Identificador', 'Patrimônio', 'Patrimonio'] if c in df_ag_aud.columns), None)
             
-            if c_sn_ag:
-                df_ag_aud['N.º SÉRIE'] = df_ag_aud[c_sn_ag].fillna('N/I').astype(str).str.strip()
-            else:
-                df_ag_aud['N.º SÉRIE'] = 'N/I'
+            if c_sn_ag: df_ag_aud['N.º SÉRIE'] = df_ag_aud[c_sn_ag].fillna('N/I').astype(str).str.strip()
+            else: df_ag_aud['N.º SÉRIE'] = 'N/I'
                 
             df_ag_aud['N.º SÉRIE'] = df_ag_aud['N.º SÉRIE'].replace({'nan': 'N/I', 'None': 'N/I', '': 'N/I'})
             
@@ -308,14 +312,14 @@ with tab_auditoria:
             mask_same_day = df_auditoria['Data_Inicio'] == df_auditoria['Data_Fim']
             df_auditoria.loc[mask_same_day, 'Data_Fim'] = df_auditoria.loc[mask_same_day, 'Data_Inicio'] + pd.Timedelta(days=1)
             
-            # Se algum campo de N/S estiver "N/I", usamos regex para tirar o N/S do ID da O.S (útil se o sistema misturar tudo)
             df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
 
+            # O Gantt agora exibe tudo de forma limpa, pois as encerradas foram filtradas na origem
             with st.container(border=True):
                 st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
-                cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000'}
                 
+                cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000'}
                 fig_gantt = px.timeline(
                     df_auditoria, x_start="Data_Inicio", x_end="Data_Fim", y="Equip_ID", color="Status",
                     color_discrete_map=cores_status, hover_name="O.S.", hover_data=["Serviço"]
