@@ -216,10 +216,13 @@ with tab_auditoria:
     with st.container(border=True):
         c_busca1, c_busca2 = st.columns([2, 1])
         
-        # Consolida lista de equipamentos unindo o passado (df_enc) e o futuro (df_agenda)
+        # Consolida lista de equipamentos de forma DINÂMICA (à prova de KeyError)
         eq_disp = set()
-        if not df_enc.empty and 'DESCRIÇÃO' in df_enc.columns: eq_disp.update(df_enc['DESCRIÇÃO'].dropna().unique())
-        if not df_agenda.empty and 'Tipo Equipamento' in df_agenda.columns: eq_disp.update(df_agenda['Tipo Equipamento'].dropna().unique())
+        c_desc_enc = next((c for c in ['DESCRIÇÃO', 'EQUIPAMENTO', 'TIPO EQUIPAMENTO'] if not df_enc.empty and c in df_enc.columns), None)
+        if c_desc_enc: eq_disp.update(df_enc[c_desc_enc].dropna().unique())
+        
+        if not df_agenda.empty and 'Tipo Equipamento' in df_agenda.columns: 
+            eq_disp.update(df_agenda['Tipo Equipamento'].dropna().unique())
         
         filtro_aud_eq = c_busca1.multiselect("Equipamento(s):", sorted(list(eq_disp)), placeholder="Busque os equipamentos alvo da auditoria...")
         filtro_aud_sn = c_busca2.text_input("Número de Série (Opcional):", placeholder="Busca exata...")
@@ -227,15 +230,21 @@ with tab_auditoria:
     if filtro_aud_eq or filtro_aud_sn:
         lista_auditoria = []
         
-        # 1. Puxando o Passado (O.S. Encerradas)
+        # 1. Puxando o Passado (O.S. Encerradas) DE FORMA BLINDADA
         if not df_enc.empty:
             df_enc_aud = df_enc.copy()
-            if filtro_aud_eq: df_enc_aud = df_enc_aud[df_enc_aud['DESCRIÇÃO'].isin(filtro_aud_eq)]
-            if filtro_aud_sn: df_enc_aud = df_enc_aud[df_enc_aud['N.º SÉRIE'].astype(str).str.contains(filtro_aud_sn, case=False, na=False)]
+            c_os = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_enc_aud.columns), None)
+            c_sn = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'SÉRIE'] if c in df_enc_aud.columns), None)
+            c_ab = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_enc_aud.columns), None)
+            c_en = next((c for c in ['ENCERRAMENTO', 'DATA ENCERRAMENTO'] if c in df_enc_aud.columns), None)
+            c_cl = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_enc_aud.columns), None)
+
+            if c_desc_enc and filtro_aud_eq: df_enc_aud = df_enc_aud[df_enc_aud[c_desc_enc].isin(filtro_aud_eq)]
+            if c_sn and filtro_aud_sn: df_enc_aud = df_enc_aud[df_enc_aud[c_sn].astype(str).str.contains(filtro_aud_sn, case=False, na=False)]
             
-            if not df_enc_aud.empty:
-                df_enc_aud = df_enc_aud[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'ABERTURA', 'ENCERRAMENTO', 'CLASSE']].copy()
-                df_enc_aud.rename(columns={'ABERTURA': 'Data_Inicio', 'ENCERRAMENTO': 'Data_Fim', 'CLASSE': 'Serviço'}, inplace=True)
+            if not df_enc_aud.empty and all([c_os, c_desc_enc, c_sn, c_ab, c_en, c_cl]):
+                df_enc_aud = df_enc_aud[[c_os, c_desc_enc, c_sn, c_ab, c_en, c_cl]].copy()
+                df_enc_aud.rename(columns={c_os: 'O.S.', c_desc_enc: 'DESCRIÇÃO', c_sn: 'N.º SÉRIE', c_ab: 'Data_Inicio', c_en: 'Data_Fim', c_cl: 'Serviço'}, inplace=True)
                 df_enc_aud['Status'] = '✔️ Executado'
                 lista_auditoria.append(df_enc_aud)
 
@@ -246,15 +255,11 @@ with tab_auditoria:
             if filtro_aud_sn: df_ag_aud = df_ag_aud[df_ag_aud['ID'].astype(str).str.contains(filtro_aud_sn, case=False, na=False)]
             
             if not df_ag_aud.empty:
-                # O ID no agendamento costuma vir como "12345 | SN: ABCD". Vamos extrair só o SN para o relatório ficar bonito.
                 df_ag_aud['N.º SÉRIE'] = df_ag_aud['ID'].astype(str).apply(lambda x: x.split('SN:')[-1].strip() if 'SN:' in x else x)
-                
                 df_ag_aud = df_ag_aud[['Tipo Equipamento', 'N.º SÉRIE', 'Data Agendamento', 'Nome', 'Status']].copy()
                 df_ag_aud.rename(columns={'Tipo Equipamento': 'DESCRIÇÃO', 'Data Agendamento': 'Data_Inicio', 'Nome': 'Serviço'}, inplace=True)
                 df_ag_aud['O.S.'] = 'AGENDADO'
-                df_ag_aud['Data_Fim'] = df_ag_aud['Data_Inicio'] # No agendamento, projetamos conclusão pro mesmo dia
-                
-                # Traduz status do agendamento para o padrão visual
+                df_ag_aud['Data_Fim'] = df_ag_aud['Data_Inicio'] 
                 df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
                 lista_auditoria.append(df_ag_aud)
 
@@ -265,7 +270,6 @@ with tab_auditoria:
             df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce')
             df_auditoria = df_auditoria.dropna(subset=['Data_Inicio']).sort_values('Data_Inicio', ascending=False)
             
-            # Formata eixo Y para o Gantt
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'].astype(str) + ")"
 
             # Gráfico Gantt
@@ -295,4 +299,5 @@ with tab_auditoria:
                     column_config={"O.S.": "Nº O.S.", "DESCRIÇÃO": "Equipamento", "N.º SÉRIE": "Nº Série", "Data_Inicio": "Abertura / Prevista", "Data_Fim": "Conclusão Real"}
                 )
         else:
+            st.warning("Nenhum histórico encontrado para os parâmetros informados.")
             st.warning("Nenhum histórico encontrado para os parâmetros informados.")
