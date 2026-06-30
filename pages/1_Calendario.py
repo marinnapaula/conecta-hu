@@ -216,13 +216,13 @@ with tab_auditoria:
     with st.container(border=True):
         c_busca1, c_busca2 = st.columns([1.5, 1.5])
         
-        # Consolida lista de equipamentos de forma DINÂMICA (à prova de KeyError)
+        # Consolida lista de equipamentos buscando as colunas EXATAS informadas
         eq_disp = set()
-        c_desc_enc = next((c for c in ['DESCRIÇÃO', 'EQUIPAMENTO', 'TIPO EQUIPAMENTO'] if not df_enc.empty and c in df_enc.columns), None)
+        c_desc_enc = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if not df_enc.empty and c in df_enc.columns), None)
         if c_desc_enc: eq_disp.update(df_enc[c_desc_enc].dropna().unique())
         
-        if not df_agenda.empty and 'Tipo Equipamento' in df_agenda.columns: 
-            eq_disp.update(df_agenda['Tipo Equipamento'].dropna().unique())
+        c_desc_ag = next((c for c in ['Tipo Equipamento', 'Tipo Equip.'] if not df_agenda.empty and c in df_agenda.columns), None)
+        if c_desc_ag: eq_disp.update(df_agenda[c_desc_ag].dropna().unique())
         
         filtro_aud_eq = c_busca1.multiselect("Equipamento(s):", sorted(list(eq_disp)), placeholder="Busque os equipamentos alvo da auditoria...")
         
@@ -235,47 +235,62 @@ with tab_auditoria:
         # Prepara a lista de N/S para busca múltipla usando Expressão Regular (Regex)
         padrao_sn = None
         if filtro_aud_sn:
-            # Divide a string pelas vírgulas, remove espaços vazios e cria o padrão de busca OR (|)
             import re
             lista_sns = [re.escape(s.strip()) for s in filtro_aud_sn.split(',') if s.strip()]
-            if lista_sns:
-                padrao_sn = '|'.join(lista_sns)
+            if lista_sns: padrao_sn = '|'.join(lista_sns)
         
-        # 1. Puxando o Passado (O.S. Encerradas) DE FORMA BLINDADA
+        # 1. Puxando o Passado (O.S. Encerradas)
         if not df_enc.empty:
             df_enc_aud = df_enc.copy()
             c_os = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_enc_aud.columns), None)
-            c_sn = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'SÉRIE'] if c in df_enc_aud.columns), None)
+            c_sn_enc = next((c for c in ['N. SÉRIE', 'N.º SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_enc_aud.columns), None)
             c_ab = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_enc_aud.columns), None)
             c_en = next((c for c in ['ENCERRAMENTO', 'DATA ENCERRAMENTO'] if c in df_enc_aud.columns), None)
             c_cl = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_enc_aud.columns), None)
 
             if c_desc_enc and filtro_aud_eq: df_enc_aud = df_enc_aud[df_enc_aud[c_desc_enc].isin(filtro_aud_eq)]
             
-            # Aplica o padrão de busca múltiplo
-            if c_sn and padrao_sn: df_enc_aud = df_enc_aud[df_enc_aud[c_sn].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True)]
+            # Aplica busca no NS exato (ou no Identificador como plano B)
+            if padrao_sn: 
+                mask_sn = df_enc_aud[c_sn_enc].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_sn_enc else False
+                c_id_enc = next((c for c in ['IDENTIFICADOR', 'ID'] if c in df_enc_aud.columns), None)
+                mask_id = df_enc_aud[c_id_enc].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_enc else False
+                df_enc_aud = df_enc_aud[mask_sn | mask_id]
             
-            if not df_enc_aud.empty and all([c_os, c_desc_enc, c_sn, c_ab, c_en, c_cl]):
-                df_enc_aud = df_enc_aud[[c_os, c_desc_enc, c_sn, c_ab, c_en, c_cl]].copy()
-                df_enc_aud.rename(columns={c_os: 'O.S.', c_desc_enc: 'DESCRIÇÃO', c_sn: 'N.º SÉRIE', c_ab: 'Data_Inicio', c_en: 'Data_Fim', c_cl: 'Serviço'}, inplace=True)
+            if not df_enc_aud.empty and all([c_os, c_desc_enc, c_sn_enc, c_ab, c_en, c_cl]):
+                df_enc_aud = df_enc_aud[[c_os, c_desc_enc, c_sn_enc, c_ab, c_en, c_cl]].copy()
+                df_enc_aud.rename(columns={c_os: 'O.S.', c_desc_enc: 'DESCRIÇÃO', c_sn_enc: 'N.º SÉRIE', c_ab: 'Data_Inicio', c_en: 'Data_Fim', c_cl: 'Serviço'}, inplace=True)
                 df_enc_aud['Status'] = '✔️ Executado'
                 lista_auditoria.append(df_enc_aud)
 
-    # 2. Puxando o Futuro (Agendamento MP)
+        # 2. Puxando o Futuro (Agendamento MP)
         if not df_agenda.empty:
             df_ag_aud = df_agenda.copy()
-            if filtro_aud_eq: df_ag_aud = df_ag_aud[df_ag_aud['Tipo Equipamento'].isin(filtro_aud_eq)]
+            if c_desc_ag and filtro_aud_eq: df_ag_aud = df_ag_aud[df_ag_aud[c_desc_ag].isin(filtro_aud_eq)]
             
-            # Aplica o padrão de busca múltiplo no ID do Agendamento
-            if padrao_sn: df_ag_aud = df_ag_aud[df_ag_aud['ID'].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True)]
+            c_sn_ag = next((c for c in ['N° Série', 'Nº Série', 'N. Série', 'N.Série'] if c in df_ag_aud.columns), None)
+            c_id_ag = next((c for c in ['ID', 'Identificador'] if c in df_ag_aud.columns), None)
             
-            if not df_ag_aud.empty:
-                # CORREÇÃO: Usando formatação em vetor (.str) que é blindada contra vazios (NaN/float)
-                df_ag_aud['N.º SÉRIE'] = df_ag_aud['ID'].fillna('').astype(str).str.split('SN:').str[-1].str.strip()
-                df_ag_aud['N.º SÉRIE'] = df_ag_aud['N.º SÉRIE'].replace({'nan': 'N/I', 'None': 'N/I', '': 'N/I'})
+            # Puxa o NS direto da coluna oficial que você informou
+            if c_sn_ag:
+                df_ag_aud['N.º SÉRIE'] = df_ag_aud[c_sn_ag].fillna('N/I').astype(str).str.strip()
+            else:
+                df_ag_aud['N.º SÉRIE'] = 'N/I'
                 
-                df_ag_aud = df_ag_aud[['Tipo Equipamento', 'N.º SÉRIE', 'Data Agendamento', 'Nome', 'Status']].copy()
-                df_ag_aud.rename(columns={'Tipo Equipamento': 'DESCRIÇÃO', 'Data Agendamento': 'Data_Inicio', 'Nome': 'Serviço'}, inplace=True)
+            df_ag_aud['N.º SÉRIE'] = df_ag_aud['N.º SÉRIE'].replace({'nan': 'N/I', 'None': 'N/I', '': 'N/I'})
+            
+            # Aplica o padrão de busca múltiplo
+            if padrao_sn: 
+                mask_sn = df_ag_aud['N.º SÉRIE'].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True)
+                mask_id = df_ag_aud[c_id_ag].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_ag else False
+                df_ag_aud = df_ag_aud[mask_sn | mask_id]
+            
+            c_data_ag = next((c for c in ['Data Agendamento', 'Data'] if c in df_ag_aud.columns), None)
+            c_nome_ag = next((c for c in ['Nome', 'Serviço'] if c in df_ag_aud.columns), None)
+
+            if not df_ag_aud.empty and c_desc_ag and c_data_ag and c_nome_ag:
+                df_ag_aud = df_ag_aud[[c_desc_ag, 'N.º SÉRIE', c_data_ag, c_nome_ag, 'Status']].copy()
+                df_ag_aud.rename(columns={c_desc_ag: 'DESCRIÇÃO', c_data_ag: 'Data_Inicio', c_nome_ag: 'Serviço'}, inplace=True)
                 df_ag_aud['O.S.'] = 'AGENDADO'
                 df_ag_aud['Data_Fim'] = df_ag_aud['Data_Inicio'] 
                 df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
@@ -284,9 +299,13 @@ with tab_auditoria:
         # 3. Consolidação e Gráficos
         if lista_auditoria:
             df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
-            df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce')
-            df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce')
+            df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce').dt.normalize()
+            df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce').dt.normalize()
             df_auditoria = df_auditoria.dropna(subset=['Data_Inicio']).sort_values('Data_Inicio', ascending=False)
+            
+            # Para o Gráfico Gantt funcionar, datas de início e fim não podem ser idênticas (soma 1 dia visual)
+            mask_same_day = df_auditoria['Data_Inicio'] == df_auditoria['Data_Fim']
+            df_auditoria.loc[mask_same_day, 'Data_Fim'] = df_auditoria.loc[mask_same_day, 'Data_Inicio'] + pd.Timedelta(days=1)
             
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'].astype(str) + ")"
 
@@ -300,8 +319,7 @@ with tab_auditoria:
                     color_discrete_map=cores_status, hover_name="O.S.", hover_data=["Serviço"]
                 )
                 fig_gantt.update_yaxes(autorange="reversed")
-                # Gráfico com altura dinâmica para acomodar vários equipamentos sem amontoar
-                fig_gantt.update_layout(height=max(400, len(df_auditoria['Equip_ID'].unique()) * 50), margin=dict(l=0, r=0, t=10, b=0))
+                fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 60), margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_gantt, use_container_width=True)
 
             # Relatório em Tabela (Pronto para Ctrl+P)
@@ -311,7 +329,10 @@ with tab_auditoria:
                 
                 df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
                 df_print['Data_Inicio'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
-                df_print['Data_Fim'] = np.where(df_print['O.S.'] == 'AGENDADO', '-', df_print['Data_Fim'].dt.strftime('%d/%m/%Y'))
+                
+                # Desfaz o +1 dia do gráfico para exibir a data real na tabela
+                df_print['Data_Fim'] = np.where(df_print['O.S.'] == 'AGENDADO', '-', (pd.to_datetime(df_print['Data_Fim'], format='%d/%m/%Y', errors='coerce') - pd.Timedelta(days=1)).dt.strftime('%d/%m/%Y').where(mask_same_day, df_auditoria['Data_Fim'].dt.strftime('%d/%m/%Y')))
+                df_print['Data_Fim'] = df_print['Data_Fim'].replace({'NaT': '-', 'nan': '-'})
                 
                 st.dataframe(
                     df_print, use_container_width=True, hide_index=True,
