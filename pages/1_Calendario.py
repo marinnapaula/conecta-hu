@@ -347,9 +347,14 @@ with tab_auditoria:
                 df_p_aud.drop(columns=[c_est_p], inplace=True, errors='ignore')
                 lista_auditoria.append(df_p_aud)
 
-        # 3. VIA DO FUTURO: Agendamento MP
+     # 3. VIA DO FUTURO: Agendamento MP
         if not df_agenda.empty:
             df_ag_aud = df_agenda.copy()
+            
+            # CORREÇÃO CRÍTICA: Filtra a base de agendamento para remover o que já foi executado.
+            # O passado já pertence ao df_enc. A agenda só deve mostrar o que está pendente/futuro.
+            df_ag_aud = df_ag_aud[df_ag_aud['Status'] != 'EXECUTADO']
+            
             c_sn_ag = next((c for c in ['N° Série', 'Nº Série', 'N. Série', 'N.Série'] if c in df_ag_aud.columns), None)
             c_id_ag = next((c for c in ['ID', 'Identificador', 'Patrimônio', 'Patrimonio'] if c in df_ag_aud.columns), None)
             c_desc_ag = next((c for c in ['Tipo Equipamento', 'Tipo Equip.'] if c in df_ag_aud.columns), None)
@@ -375,7 +380,6 @@ with tab_auditoria:
                 df_ag_aud['Data_Fim'] = df_ag_aud['Data_Inicio'] 
                 df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
                 lista_auditoria.append(df_ag_aud)
-
         # 4. Consolidação Geral e Imparabilidade Visual
         if lista_auditoria:
             df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
