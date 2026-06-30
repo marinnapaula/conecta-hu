@@ -188,7 +188,7 @@ if not df_agenda.empty:
     df_agenda['Status'] = df_agenda.apply(calcular_status, axis=1)
     df_agenda = df_agenda[df_agenda['Status'] != 'CANCELADO']
 
-tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria VIGIOSP"])
+tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria"])
 
 # ---------------------------------------------------------------------
 # ABA 1: CALENDÁRIO OPERACIONAL (Mantido igual)
