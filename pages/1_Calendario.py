@@ -355,8 +355,6 @@ with tab_auditoria:
             df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce').dt.normalize()
             df_auditoria = df_auditoria.dropna(subset=['Data_Inicio'])
             
-            # ---> A MÁGICA: CRUZAMENTO DE SERVIÇOS COM A AGENDA <---
-            # Isso substitui "MP" genérico pelo nome exato (PREVENTIVA, CALIBRAÇÃO)
             if not df_agenda.empty:
                 c_sn_ag_m = next((c for c in ['N° Série', 'Nº Série', 'N. Série', 'N.Série'] if c in df_agenda.columns), None)
                 c_nome_ag_m = next((c for c in ['Nome', 'Serviço'] if c in df_agenda.columns), None)
@@ -383,7 +381,6 @@ with tab_auditoria:
                     return serv_atual
                 
                 df_auditoria['Serviço'] = df_auditoria.apply(melhorar_nome_servico, axis=1)
-            # --------------------------------------------------------
 
             df_auditoria['Status_Legenda'] = df_auditoria['Status'].apply(lambda x: '⚙️ Em Execução' if 'Em Execução' in str(x) else x)
             df_auditoria['Data_Fim_Vis'] = df_auditoria['Data_Inicio'] + pd.Timedelta(days=15)
@@ -410,6 +407,13 @@ with tab_auditoria:
                 
                 st.markdown("<hr style='margin: 5px 0px; border-top: 1px solid #e6e6e6;'>", unsafe_allow_html=True)
                 apenas_ultima = st.checkbox("🎯 Ocultar histórico antigo e mostrar apenas a **ÚLTIMA** manutenção executada de cada equipamento.")
+
+            # ---- AVISO DINÂMICO DE IMPLANTAÇÃO ----
+            if filtro_servico:
+                implantacao_selecionados = [s for s in filtro_servico if s.upper() in ['INSPEÇÃO E TESTE OPERACIONAL', 'SEGURANÇA ELÉTRICA']]
+                if implantacao_selecionados:
+                    st.info(f"🚧 **Nota para Auditoria:** O(s) serviço(s) de **{', '.join(implantacao_selecionados)}** encontram-se atualmente em fase de implantação/piloto na instituição.")
+            # ---------------------------------------
 
             if filtro_status: df_auditoria = df_auditoria[df_auditoria['Status_Legenda'].isin(filtro_status)]
             if filtro_servico: df_auditoria = df_auditoria[df_auditoria['Serviço'].astype(str).isin(filtro_servico)]
