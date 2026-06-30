@@ -12,3 +12,4 @@ selenium
 webdriver-manager
 xlrd>=2.0.1
 reportlab
+kaleido
