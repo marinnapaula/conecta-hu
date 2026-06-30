@@ -214,7 +214,7 @@ with tab_auditoria:
     st.markdown("Filtre o equipamento para rastrear as manutenções já executadas e as próximas projetadas no agendamento.")
     
     with st.container(border=True):
-        c_busca1, c_busca2 = st.columns([2, 1])
+        c_busca1, c_busca2 = st.columns([1.5, 1.5])
         
         # Consolida lista de equipamentos de forma DINÂMICA (à prova de KeyError)
         eq_disp = set()
@@ -225,10 +225,21 @@ with tab_auditoria:
             eq_disp.update(df_agenda['Tipo Equipamento'].dropna().unique())
         
         filtro_aud_eq = c_busca1.multiselect("Equipamento(s):", sorted(list(eq_disp)), placeholder="Busque os equipamentos alvo da auditoria...")
-        filtro_aud_sn = c_busca2.text_input("Número de Série (Opcional):", placeholder="Busca exata...")
+        
+        # CAIXA INTELIGENTE DE MULTI-BUSCA POR VÍRGULA
+        filtro_aud_sn = c_busca2.text_input("Número(s) de Série (Separe por vírgula):", placeholder="Ex: 1234, ABCD, 9876...")
 
     if filtro_aud_eq or filtro_aud_sn:
         lista_auditoria = []
+        
+        # Prepara a lista de N/S para busca múltipla usando Expressão Regular (Regex)
+        padrao_sn = None
+        if filtro_aud_sn:
+            # Divide a string pelas vírgulas, remove espaços vazios e cria o padrão de busca OR (|)
+            import re
+            lista_sns = [re.escape(s.strip()) for s in filtro_aud_sn.split(',') if s.strip()]
+            if lista_sns:
+                padrao_sn = '|'.join(lista_sns)
         
         # 1. Puxando o Passado (O.S. Encerradas) DE FORMA BLINDADA
         if not df_enc.empty:
@@ -240,7 +251,9 @@ with tab_auditoria:
             c_cl = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_enc_aud.columns), None)
 
             if c_desc_enc and filtro_aud_eq: df_enc_aud = df_enc_aud[df_enc_aud[c_desc_enc].isin(filtro_aud_eq)]
-            if c_sn and filtro_aud_sn: df_enc_aud = df_enc_aud[df_enc_aud[c_sn].astype(str).str.contains(filtro_aud_sn, case=False, na=False)]
+            
+            # Aplica o padrão de busca múltiplo
+            if c_sn and padrao_sn: df_enc_aud = df_enc_aud[df_enc_aud[c_sn].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True)]
             
             if not df_enc_aud.empty and all([c_os, c_desc_enc, c_sn, c_ab, c_en, c_cl]):
                 df_enc_aud = df_enc_aud[[c_os, c_desc_enc, c_sn, c_ab, c_en, c_cl]].copy()
@@ -252,7 +265,9 @@ with tab_auditoria:
         if not df_agenda.empty:
             df_ag_aud = df_agenda.copy()
             if filtro_aud_eq: df_ag_aud = df_ag_aud[df_ag_aud['Tipo Equipamento'].isin(filtro_aud_eq)]
-            if filtro_aud_sn: df_ag_aud = df_ag_aud[df_ag_aud['ID'].astype(str).str.contains(filtro_aud_sn, case=False, na=False)]
+            
+            # Aplica o padrão de busca múltiplo no ID do Agendamento
+            if padrao_sn: df_ag_aud = df_ag_aud[df_ag_aud['ID'].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True)]
             
             if not df_ag_aud.empty:
                 df_ag_aud['N.º SÉRIE'] = df_ag_aud['ID'].astype(str).apply(lambda x: x.split('SN:')[-1].strip() if 'SN:' in x else x)
@@ -272,7 +287,7 @@ with tab_auditoria:
             
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'].astype(str) + ")"
 
-            # Gráfico Gantt
+            # Gráfico Gantt Múltiplo
             with st.container(border=True):
                 st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
                 cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000'}
@@ -282,13 +297,14 @@ with tab_auditoria:
                     color_discrete_map=cores_status, hover_name="O.S.", hover_data=["Serviço"]
                 )
                 fig_gantt.update_yaxes(autorange="reversed")
-                fig_gantt.update_layout(height=400, margin=dict(l=0, r=0, t=10, b=0))
+                # Gráfico com altura dinâmica para acomodar vários equipamentos sem amontoar
+                fig_gantt.update_layout(height=max(400, len(df_auditoria['Equip_ID'].unique()) * 50), margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_gantt, use_container_width=True)
 
             # Relatório em Tabela (Pronto para Ctrl+P)
             with st.container(border=True):
                 st.markdown("##### 📋 Relatório Consolidado de Engenharia Clínica")
-                st.caption("Pressione **Ctrl + P** e escolha 'Salvar como PDF' para exportar esta visão.")
+                st.caption("Pressione **Ctrl + P** e escolha 'Salvar como PDF' para exportar esta visão combinada.")
                 
                 df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
                 df_print['Data_Inicio'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
@@ -299,5 +315,4 @@ with tab_auditoria:
                     column_config={"O.S.": "Nº O.S.", "DESCRIÇÃO": "Equipamento", "N.º SÉRIE": "Nº Série", "Data_Inicio": "Abertura / Prevista", "Data_Fim": "Conclusão Real"}
                 )
         else:
-            st.warning("Nenhum histórico encontrado para os parâmetros informados.")
             st.warning("Nenhum histórico encontrado para os parâmetros informados.")
