@@ -210,24 +210,39 @@ with tab_calendario:
             icone_status = 'check_circle' if status_os == 'EXECUTADO' else ('warning' if status_os == 'ATRASADO' else 'rule')
             st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:{cor_status}; font-size:18px;'>{icone_status}</span> <b style='color:{cor_status};'>Status: {status_os}</b></div>", unsafe_allow_html=True)
 
-    eventos_calendario = []
+   eventos_calendario = []
     cores_servicos = {'PREVENTIVA': '#154899', 'CALIBRAÇÃO': '#32A347', 'SEGURANÇA ELÉTRICA': '#F8BB32', 'INSPEÇÃO E TESTE OPERACIONAL': '#17a2b8'}
 
     for index, row in df_filtrado.iterrows():
         tipo_servico = str(row['Nome']).strip().upper()
-        data = row['Data Agendamento'].strftime("%Y-%m-%dT12:00:00") 
+        
+        # MUDANÇA 1: Removemos o T12:00:00 para não travar os eventos no meio-dia
+        data = row['Data Agendamento'].strftime("%Y-%m-%d") 
+        
         equipamento = str(row['Tipo Equipamento'])
         codigo = str(row['ID']).split('|')[0] if pd.notna(row.get('ID')) else str(row.get('N° Série', 'S/N'))
         status_atual = row.get('Status', 'NO PRAZO')
         cor_evento = '#A6ACAF' if status_atual == 'EXECUTADO' else ('#E74C3C' if status_atual == 'ATRASADO' else cores_servicos.get(tipo_servico, '#154899'))
-        eventos_calendario.append({"title": f"[{codigo}] {tipo_servico}", "start": data, "color": cor_evento, "equipamento": equipamento, "marca": str(row.get('Marca', 'N/A')), "setor": str(row.get('U.S.', 'N/A')), "tipo_servico": tipo_servico, "status": status_atual})
+        
+        eventos_calendario.append({
+            "title": f"[{codigo}] {tipo_servico}", 
+            "start": data, 
+            "allDay": True,  # MUDANÇA 2: Força o calendário a reconhecer como evento de "Dia Inteiro"
+            "color": cor_evento, 
+            "equipamento": equipamento, 
+            "marca": str(row.get('Marca', 'N/A')), 
+            "setor": str(row.get('U.S.', 'N/A')), 
+            "tipo_servico": tipo_servico, 
+            "status": status_atual
+        })
 
-    opcoes_calendario = {"headerToolbar": {"left": "today prev,next", "center": "title", "right": "dayGridMonth,timeGridWeek,listMonth"}, "initialView": "dayGridMonth", "locale": "pt-br", "buttonText": {"today": "Hoje", "month": "Mês", "week": "Semana", "list": "Lista"}}
-    st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>event_note</span> Visão Mensal de Execução</h3>", unsafe_allow_html=True)
-    if not df_filtrado.empty:
-        calendario_gerado = calendar(events=eventos_calendario, options=opcoes_calendario)
-        if calendario_gerado.get("eventClick"): modal_detalhes(calendario_gerado["eventClick"]["event"])
-    else: st.info("Nenhuma manutenção encontrada.")
+    # MUDANÇA 3: Trocamos o "timeGridWeek" por "dayGridWeek" para as barras ficarem em formato de blocos deitados
+    opcoes_calendario = {
+        "headerToolbar": {"left": "today prev,next", "center": "title", "right": "dayGridMonth,dayGridWeek,listMonth"}, 
+        "initialView": "dayGridMonth", 
+        "locale": "pt-br", 
+        "buttonText": {"today": "Hoje", "month": "Mês", "week": "Semana", "list": "Lista"}
+    }
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>list_alt</span> Lista Detalhada de Serviços</h3>", unsafe_allow_html=True)
