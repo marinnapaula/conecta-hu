@@ -54,21 +54,30 @@ def gerar_pdf_relatorio(df, fig_grafico=None):
     story.append(Paragraph(f"Documento de Evidência para Auditoria Sanitária | HU-UNIVASF<br/>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
     story.append(Spacer(1, 5))
     
-    # INSERE A FOTO DO GRÁFICO NO PDF
+    # INSERE A FOTO DO GRÁFICO NO PDF COM PROPORÇÃO INTELIGENTE
     if fig_grafico is not None:
         try:
-            # Tenta converter o Plotly para Imagem
-            img_bytes = fig_grafico.to_image(format="png", engine="kaleido", width=1100, height=450)
-            img_buffer = BytesIO(img_bytes)
-            img_buffer.seek(0) # Força a leitura desde o início do arquivo em memória
+            # Captura a altura real que o gráfico exige
+            altura_real = fig_grafico.layout.height if fig_grafico.layout.height else 450
             
-            img_pdf = RLImage(img_buffer, width=720, height=280) # Ajustado para caber na página A4 Paisagem
+            # Tenta converter o Plotly para Imagem, dando bastante espaço (width 1200) para os nomes caberem
+            img_bytes = fig_grafico.to_image(format="png", engine="kaleido", width=1200, height=altura_real)
+            img_buffer = BytesIO(img_bytes)
+            img_buffer.seek(0)
+            
+            # Calcula a proporção para não esmagar a imagem na folha
+            proporcao = altura_real / 1200
+            altura_pdf = 720 * proporcao
+            
+            # Limite máximo de altura para não quebrar a página do PDF
+            if altura_pdf > 380: altura_pdf = 380
+            
+            img_pdf = RLImage(img_buffer, width=720, height=altura_pdf) 
             story.append(img_pdf)
             story.append(Spacer(1, 15))
         except Exception as e:
-            # Se falhar, agora ele não esconde mais. Vai carimbar o erro exato no PDF!
             erro_limpo = str(e).replace('<', '').replace('>', '')
-            alerta = f"<font color='red'><b>Aviso: Não foi possível anexar o gráfico (Erro: {erro_limpo}). Verifique o kaleido==0.1.0.post1 no requirements.txt</b></font>"
+            alerta = f"<font color='red'><b>Aviso: Não foi possível anexar o gráfico (Erro: {erro_limpo}).</b></font>"
             story.append(Paragraph(alerta, cell_style))
             story.append(Spacer(1, 10))
     
@@ -182,7 +191,7 @@ if not df_agenda.empty:
 tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria VIGIOSP"])
 
 # ---------------------------------------------------------------------
-# ABA 1: CALENDÁRIO OPERACIONAL
+# ABA 1: CALENDÁRIO OPERACIONAL (Mantido igual)
 # ---------------------------------------------------------------------
 with tab_calendario:
     st.info(f"🕒 **Última Atualização da Base:** {data_cron}")
@@ -235,7 +244,7 @@ with tab_calendario:
 
 
 # ---------------------------------------------------------------------
-# ABA 2: AUDITORIA VIGIOSP (FILTROS + GANTT + PDF)
+# ABA 2: AUDITORIA VIGIOSP
 # ---------------------------------------------------------------------
 with tab_auditoria:
     st.markdown("Rastreie as manutenções programadas inserindo diretamente os números de série ou patrimônios da lista da auditoria.")
@@ -389,9 +398,13 @@ with tab_auditoria:
                     fig_gantt = px.timeline(
                         df_auditoria, x_start="Data_Inicio", x_end="Data_Fim_Vis", y="Equip_ID", color="Status_Legenda", color_discrete_map=cores_status, hover_name="O.S.", hover_data={"Serviço": True, "Status": True, "Status_Legenda": False, "Data_Fim_Vis": False}
                     )
-                    fig_gantt.update_yaxes(autorange="reversed" if ordenacao != "Equipamento (A-Z)" else None)
+                    
+                    # CORREÇÃO DA MARGEM: Removemos o l=0 (left) para que o Plotly não corte o texto dos equipamentos na foto do PDF.
+                    # Ativamos o automargin=True no Eixo Y para ele expandir e caber a letra inteira.
+                    fig_gantt.update_yaxes(autorange="reversed" if ordenacao != "Equipamento (A-Z)" else None, title="", automargin=True)
                     fig_gantt.update_xaxes(rangeslider_visible=False)
-                    fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 60), margin=dict(l=0, r=0, t=10, b=0))
+                    fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 50), margin=dict(t=20, b=10), font=dict(size=10))
+                    
                     st.plotly_chart(fig_gantt, use_container_width=True)
 
                 df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
