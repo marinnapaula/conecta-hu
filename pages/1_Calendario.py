@@ -181,7 +181,7 @@ if not df_agenda.empty:
     df_agenda['Status'] = df_agenda.apply(calcular_status, axis=1)
     df_agenda = df_agenda[df_agenda['Status'] != 'CANCELADO']
 
-tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria "])
+tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria VIGIOSP"])
 
 # ---------------------------------------------------------------------
 # ABA 1: CALENDÁRIO OPERACIONAL
@@ -210,13 +210,13 @@ with tab_calendario:
             icone_status = 'check_circle' if status_os == 'EXECUTADO' else ('warning' if status_os == 'ATRASADO' else 'rule')
             st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:{cor_status}; font-size:18px;'>{icone_status}</span> <b style='color:{cor_status};'>Status: {status_os}</b></div>", unsafe_allow_html=True)
 
-   eventos_calendario = []
+    eventos_calendario = []
     cores_servicos = {'PREVENTIVA': '#154899', 'CALIBRAÇÃO': '#32A347', 'SEGURANÇA ELÉTRICA': '#F8BB32', 'INSPEÇÃO E TESTE OPERACIONAL': '#17a2b8'}
 
     for index, row in df_filtrado.iterrows():
         tipo_servico = str(row['Nome']).strip().upper()
         
-        # MUDANÇA 1: Removemos o T12:00:00 para não travar os eventos no meio-dia
+        # MUDANÇA: Data formatada sem hora para forçar "All Day"
         data = row['Data Agendamento'].strftime("%Y-%m-%d") 
         
         equipamento = str(row['Tipo Equipamento'])
@@ -227,7 +227,7 @@ with tab_calendario:
         eventos_calendario.append({
             "title": f"[{codigo}] {tipo_servico}", 
             "start": data, 
-            "allDay": True,  # MUDANÇA 2: Força o calendário a reconhecer como evento de "Dia Inteiro"
+            "allDay": True,  # Força bloco de dia inteiro
             "color": cor_evento, 
             "equipamento": equipamento, 
             "marca": str(row.get('Marca', 'N/A')), 
@@ -236,13 +236,19 @@ with tab_calendario:
             "status": status_atual
         })
 
-    # MUDANÇA 3: Trocamos o "timeGridWeek" por "dayGridWeek" para as barras ficarem em formato de blocos deitados
+    # Trocado para dayGridWeek para visão de blocos semanais
     opcoes_calendario = {
         "headerToolbar": {"left": "today prev,next", "center": "title", "right": "dayGridMonth,dayGridWeek,listMonth"}, 
         "initialView": "dayGridMonth", 
         "locale": "pt-br", 
         "buttonText": {"today": "Hoje", "month": "Mês", "week": "Semana", "list": "Lista"}
     }
+    
+    st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>event_note</span> Visão Mensal de Execução</h3>", unsafe_allow_html=True)
+    if not df_filtrado.empty:
+        calendario_gerado = calendar(events=eventos_calendario, options=opcoes_calendario)
+        if calendario_gerado.get("eventClick"): modal_detalhes(calendario_gerado["eventClick"]["event"])
+    else: st.info("Nenhuma manutenção encontrada.")
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>list_alt</span> Lista Detalhada de Serviços</h3>", unsafe_allow_html=True)
@@ -257,13 +263,11 @@ with tab_calendario:
 with tab_auditoria:
     st.markdown("Rastreie as manutenções programadas inserindo diretamente os números de série ou patrimônios da lista da auditoria.")
     
-    # === SISTEMA DE LIMPEZA DOS CAMPOS ===
     def limpar_filtros_busca():
         st.session_state.filtro_auditoria_eq = []
         st.session_state.filtro_auditoria_sn = ""
         
     with st.container(border=True):
-        # Dividimos em 3 colunas para encaixar o botão de limpar na ponta direita
         c_b1, c_busca_sn, c_btn = st.columns([1.5, 1.5, 0.35])
         
         tipos_equip = set()
@@ -283,7 +287,6 @@ with tab_auditoria:
             key="filtro_auditoria_sn"
         )
         
-        # Botão de Limpar alinhado na vertical
         with c_btn:
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
             st.button("🧹 Limpar", on_click=limpar_filtros_busca, use_container_width=True)
@@ -443,12 +446,12 @@ with tab_auditoria:
                 ordenacao = col_f4.selectbox("Ordenar Tabela/Gráfico por:", opcoes_ord)
                 
                 st.markdown("<hr style='margin: 5px 0px; border-top: 1px solid #e6e6e6;'>", unsafe_allow_html=True)
-                apenas_ultima = st.checkbox("🎯 EXIBIR APENAS A **ÚLTIMA** MANUTENÇÃO EXECUTADA.")
+                apenas_ultima = st.checkbox("🎯 Ocultar histórico antigo e mostrar apenas a **ÚLTIMA** manutenção executada de cada equipamento.")
 
             if filtro_servico:
                 implantacao_selecionados = [s for s in filtro_servico if s.upper() in ['INSPEÇÃO E TESTE OPERACIONAL', 'SEGURANÇA ELÉTRICA']]
                 if implantacao_selecionados:
-                    st.info(f"🚧 **Nota:** O(s) serviço(s) de **{', '.join(implantacao_selecionados)}** encontram-se atualmente em fase de implantação.")
+                    st.info(f"🚧 **Nota para Auditoria:** O(s) serviço(s) de **{', '.join(implantacao_selecionados)}** encontram-se atualmente em fase de implantação/piloto na instituição.")
 
             if filtro_status: df_auditoria = df_auditoria[df_auditoria['Status_Legenda'].isin(filtro_status)]
             if filtro_servico: df_auditoria = df_auditoria[df_auditoria['Serviço'].astype(str).isin(filtro_servico)]
@@ -470,7 +473,7 @@ with tab_auditoria:
 
             if not df_auditoria.empty:
                 with st.container(border=True):
-                    st.markdown("##### ⏱️ Linha do Tempo de Intervenções")
+                    st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
                     cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
                     
                     fig_gantt = px.timeline(
@@ -500,9 +503,9 @@ with tab_auditoria:
                     pdf_gerado = gerar_pdf_relatorio(df_print, fig_gantt)
                     
                     st.download_button(
-                        label="📥 Baixar Relatório",
+                        label="📥 Baixar Dossiê de Auditoria VIGIOSP (PDF + Gráfico)",
                         data=pdf_gerado,
-                        file_name=f"Relatorio_Manutenções_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                        file_name=f"Relatorio_VIGIOSP_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                         mime="application/pdf"
                     )
                     st.write("")
