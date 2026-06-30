@@ -339,55 +339,53 @@ with tab_auditoria:
                 lista_auditoria.append(df_ag_aud)
 
         # 4.Consolidação e Gráficos
-        if lista_auditoria:
+            if lista_auditoria:
             df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
             df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce').dt.normalize()
             df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce').dt.normalize()
             df_auditoria = df_auditoria.dropna(subset=['Data_Inicio']).sort_values(['DESCRIÇÃO', 'Data_Inicio'], ascending=[True, False])
             
-            # TRUQUE VISUAL 1: Agrupar as variações de "Em Execução" para a legenda não estourar
+            # Agrupa as variações de "Em Execução" para a legenda não estourar
             df_auditoria['Status_Legenda'] = df_auditoria['Status'].apply(lambda x: '⚙️ Em Execução' if 'Em Execução' in str(x) else x)
-            
-            # TRUQUE VISUAL 2: Se a data de início e fim são iguais, damos um "peso" de 15 dias apenas para o gráfico desenhar um bloco legível na escala de 5 anos
-            mask_same_day = df_auditoria['Data_Inicio'] == df_auditoria['Data_Fim']
-            df_auditoria['Data_Fim_Vis'] = df_auditoria['Data_Fim']
-            df_auditoria.loc[mask_same_day, 'Data_Fim_Vis'] = df_auditoria.loc[mask_same_day, 'Data_Inicio'] + pd.Timedelta(days=15)
             
             df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
 
-            # O Gantt limpo e focado
+            # A MÁGICA VISUAL: Trocamos o Timeline (Barras) por Scatter (Pontos de Marco)
             with st.container(border=True):
-                st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
+                st.markdown("##### 📍 Linha do Tempo de Intervenções (Marcos de Manutenção)")
                 
                 cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
+                # Diferentes formatos visuais para cada status
+                simbolos_status = {'✔️ Executado': 'circle', '⏳ Programado': 'diamond', '⚠️ Atrasado': 'x', '⚙️ Em Execução': 'star'}
                 
-                fig_gantt = px.timeline(
+                fig_gantt = px.scatter(
                     df_auditoria, 
-                    x_start="Data_Inicio", 
-                    x_end="Data_Fim_Vis",  # Usamos a data inflada visualmente
+                    x="Data_Inicio", 
                     y="Equip_ID", 
-                    color="Status_Legenda", # Usamos a legenda agrupada e limpa
+                    color="Status_Legenda", 
                     color_discrete_map=cores_status, 
+                    symbol="Status_Legenda",
+                    symbol_map=simbolos_status,
                     hover_name="O.S.", 
-                    # Mostramos o status REAL detalhado no balãozinho, e escondemos as colunas técnicas visuais
-                    hover_data={"Status": True, "Serviço": True, "Status_Legenda": False, "Data_Fim_Vis": False} 
+                    hover_data={"Status": True, "Serviço": True, "Status_Legenda": False, "Data_Inicio": "|%d/%m/%Y"} 
                 )
-                fig_gantt.update_yaxes(autorange="reversed")
                 
-                # TRUQUE VISUAL 3: Barra de rolagem inferior para zoom temporal
-                fig_gantt.update_xaxes(rangeslider_visible=True)
+                # Aumenta o tamanho dos ícones para ficarem bem visíveis na linha
+                fig_gantt.update_traces(marker=dict(size=14, line=dict(width=1, color='DarkSlateGrey')))
                 
-                # Altura ajustável: não fica esmagado se tiver 30 equipamentos
+                # Cria a "linha vazia" (Grid) bem suave guiando os olhos, invertendo o eixo Y
+                fig_gantt.update_yaxes(autorange="reversed", showgrid=True, gridwidth=1, gridcolor='#e6e6e6', title="")
+                fig_gantt.update_xaxes(rangeslider_visible=True, showgrid=True, gridwidth=1, gridcolor='#f0f0f0', title="")
+                
                 altura_grafico = max(400, len(df_auditoria['Equip_ID'].unique()) * 45)
-                fig_gantt.update_layout(height=altura_grafico, margin=dict(l=0, r=0, t=10, b=0))
+                fig_gantt.update_layout(height=altura_grafico, margin=dict(l=0, r=0, t=10, b=0), legend_title_text="")
                 st.plotly_chart(fig_gantt, use_container_width=True)
 
             with st.container(border=True):
                 st.markdown("##### 📋 Relatório Consolidado de Engenharia Clínica")
                 st.caption("Pressione **Ctrl + P** e escolha 'Salvar como PDF' para exportar esta visão combinada.")
                 
-                # A tabela usa os dados REAIS, intactos.
                 df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
                 df_print['Data_Inicio'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
                 
