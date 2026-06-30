@@ -355,7 +355,7 @@ with tab_auditoria:
                 df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
                 lista_auditoria.append(df_ag_aud)
 
-        # 4. Consolidação Geral e Ordenação
+       # 4. Consolidação Geral e Ordenação
         if lista_auditoria:
             df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
             df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce').dt.normalize()
@@ -379,12 +379,22 @@ with tab_auditoria:
                 filtro_periodo = col_f2.date_input("Filtrar por Período de Abertura:", value=(min_date, max_date), min_value=min_date, max_value=max_date, format="DD/MM/YYYY")
                 opcoes_ord = ["Data (Mais recente primeiro)", "Data (Mais antiga primeiro)", "Equipamento (A-Z)", "Situação Atual"]
                 ordenacao = col_f3.selectbox("Ordenar Tabela e Gráfico por:", opcoes_ord)
+                
+                st.markdown("<hr style='margin: 5px 0px; border-top: 1px solid #e6e6e6;'>", unsafe_allow_html=True)
+                apenas_ultima = st.checkbox("🎯 Ocultar histórico antigo e mostrar apenas a **ÚLTIMA** manutenção executada de cada equipamento.")
 
             if filtro_status: df_auditoria = df_auditoria[df_auditoria['Status_Legenda'].isin(filtro_status)]
             if len(filtro_periodo) == 2:
                 start_date, end_date = filtro_periodo
                 df_auditoria = df_auditoria[(df_auditoria['Data_Inicio'].dt.date >= start_date) & (df_auditoria['Data_Inicio'].dt.date <= end_date)]
             
+            # MÁGICA DO NOVO FILTRO: Mantém apenas a O.S. Executada mais recente de cada máquina
+            if apenas_ultima and not df_auditoria.empty:
+                mask_exec = df_auditoria['Status'] == '✔️ Executado'
+                df_exec = df_auditoria[mask_exec].sort_values('Data_Inicio', ascending=False).drop_duplicates(subset=['Equip_ID'], keep='first')
+                df_outros = df_auditoria[~mask_exec]
+                df_auditoria = pd.concat([df_exec, df_outros], ignore_index=True)
+
             if ordenacao == "Data (Mais recente primeiro)": df_auditoria = df_auditoria.sort_values('Data_Inicio', ascending=False)
             elif ordenacao == "Data (Mais antiga primeiro)": df_auditoria = df_auditoria.sort_values('Data_Inicio', ascending=True)
             elif ordenacao == "Equipamento (A-Z)": df_auditoria = df_auditoria.sort_values(['DESCRIÇÃO', 'Data_Inicio'], ascending=[True, False])
@@ -392,15 +402,13 @@ with tab_auditoria:
 
             if not df_auditoria.empty:
                 with st.container(border=True):
-                    st.markdown("##### ⏱️ Linha do Tempo de Intervenções ")
+                    st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
                     cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
                     
                     fig_gantt = px.timeline(
                         df_auditoria, x_start="Data_Inicio", x_end="Data_Fim_Vis", y="Equip_ID", color="Status_Legenda", color_discrete_map=cores_status, hover_name="O.S.", hover_data={"Serviço": True, "Status": True, "Status_Legenda": False, "Data_Fim_Vis": False}
                     )
                     
-                    # CORREÇÃO DA MARGEM: Removemos o l=0 (left) para que o Plotly não corte o texto dos equipamentos na foto do PDF.
-                    # Ativamos o automargin=True no Eixo Y para ele expandir e caber a letra inteira.
                     fig_gantt.update_yaxes(autorange="reversed" if ordenacao != "Equipamento (A-Z)" else None, title="", automargin=True)
                     fig_gantt.update_xaxes(rangeslider_visible=False)
                     fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 50), margin=dict(t=20, b=10), font=dict(size=10))
@@ -424,9 +432,9 @@ with tab_auditoria:
                     pdf_gerado = gerar_pdf_relatorio(df_print, fig_gantt)
                     
                     st.download_button(
-                        label="📥 Baixar Relatório",
+                        label="📥 Baixar Dossiê de Auditoria VIGIOSP (PDF + Gráfico)",
                         data=pdf_gerado,
-                        file_name=f"Relatorio_Auditoria_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                        file_name=f"Relatorio_VIGIOSP_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                         mime="application/pdf"
                     )
                     st.write("")
