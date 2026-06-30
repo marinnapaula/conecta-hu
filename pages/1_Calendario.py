@@ -355,6 +355,36 @@ with tab_auditoria:
             df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce').dt.normalize()
             df_auditoria = df_auditoria.dropna(subset=['Data_Inicio'])
             
+            # ---> A MÁGICA: CRUZAMENTO DE SERVIÇOS COM A AGENDA <---
+            # Isso substitui "MP" genérico pelo nome exato (PREVENTIVA, CALIBRAÇÃO)
+            if not df_agenda.empty:
+                c_sn_ag_m = next((c for c in ['N° Série', 'Nº Série', 'N. Série', 'N.Série'] if c in df_agenda.columns), None)
+                c_nome_ag_m = next((c for c in ['Nome', 'Serviço'] if c in df_agenda.columns), None)
+                c_os_ag_m = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_agenda.columns), None)
+                
+                map_os = {}
+                if c_os_ag_m and c_nome_ag_m:
+                    v_os = df_agenda.dropna(subset=[c_os_ag_m, c_nome_ag_m])
+                    map_os = dict(zip(v_os[c_os_ag_m].astype(str).str.strip(), v_os[c_nome_ag_m].astype(str).str.strip().str.upper()))
+                    
+                map_sn = {}
+                if c_sn_ag_m and c_nome_ag_m:
+                    v_sn = df_agenda.dropna(subset=[c_sn_ag_m, c_nome_ag_m])
+                    map_sn = dict(zip(v_sn[c_sn_ag_m].astype(str).str.strip(), v_sn[c_nome_ag_m].astype(str).str.strip().str.upper()))
+                
+                def melhorar_nome_servico(row):
+                    serv_atual = str(row['Serviço']).strip().upper()
+                    os_val = str(row['O.S.']).strip()
+                    sn_val = str(row['N.º SÉRIE']).strip()
+                    
+                    if os_val in map_os and os_val != 'AGENDADO': return map_os[os_val]
+                    if serv_atual in ['MP', 'MC', 'PREVENTIVA', 'CORRETIVA', 'PROGRAMADA', 'NAN', 'N/I', 'NONE']:
+                        if sn_val in map_sn: return map_sn[sn_val]
+                    return serv_atual
+                
+                df_auditoria['Serviço'] = df_auditoria.apply(melhorar_nome_servico, axis=1)
+            # --------------------------------------------------------
+
             df_auditoria['Status_Legenda'] = df_auditoria['Status'].apply(lambda x: '⚙️ Em Execução' if 'Em Execução' in str(x) else x)
             df_auditoria['Data_Fim_Vis'] = df_auditoria['Data_Inicio'] + pd.Timedelta(days=15)
             df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
@@ -363,13 +393,11 @@ with tab_auditoria:
             # Filtros Extras
             with st.container(border=True):
                 st.markdown("##### 🛠️ Controles de Exibição do Relatório")
-                # AGORA TEMOS 4 COLUNAS DE CONTROLE (NOVO FILTRO DE SERVIÇO AQUI)
                 col_f1, col_f2, col_f3, col_f4 = st.columns(4)
                 
                 status_disp = df_auditoria['Status_Legenda'].unique().tolist()
                 filtro_status = col_f1.multiselect("Filtrar por Situação:", options=status_disp, default=status_disp)
                 
-                # Caixinhas de Serviço (Preventiva, Calibração, etc)
                 servicos_disp = sorted(df_auditoria['Serviço'].astype(str).unique().tolist())
                 filtro_servico = col_f2.multiselect("Tipo de Programa (Serviço):", options=servicos_disp, default=servicos_disp)
                 
