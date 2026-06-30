@@ -7,7 +7,7 @@ import glob
 import numpy as np
 from datetime import datetime, timezone, timedelta
 
-# Importando a inteligência do motor para puxar o histórico do passado
+# Importando a inteligência do motor para puxar o histórico e o inventário
 from motor_dados import carregar_mais_recente, carregar_os_encerradas
 
 # =====================================================================
@@ -32,7 +32,7 @@ st.set_page_config(
     page_title="Calendário | Conecta",
     page_icon=":material/calendar_month:",
     layout="wide",
-    initial_sidebar_state="collapsed" # Deixei fechado por padrão para dar mais espaço à tela
+    initial_sidebar_state="collapsed"
 )
 
 # =====================================================================
@@ -43,13 +43,8 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;800&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0');
 
-    html, body, [class*="css"], [class*="st-"]  {
-        font-family: 'Montserrat', sans-serif !important;
-    }
-    
-    span[data-testid="stIconMaterial"] {
-        font-family: "Material Symbols Rounded" !important;
-    }
+    html, body, [class*="css"], [class*="st-"]  { font-family: 'Montserrat', sans-serif !important; }
+    span[data-testid="stIconMaterial"] { font-family: "Material Symbols Rounded" !important; }
 
     h1 { color: #154899 !important; font-weight: 800 !important; margin-bottom: 0px; padding-bottom: 5px; margin-top: -10px; }
     h2, h3 { color: #32A347 !important; font-weight: 700 !important; }
@@ -57,19 +52,15 @@ st.markdown("""
     [data-testid="stSidebar"] { background-color: #f8f9fa; }
     .block-container { padding-top: 2rem !important; }
     
-    /* ESSA É A CLASSE QUE FAZ O ALINHAMENTO PERFEITO DAS LOGOS */
     .logo-container {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        height: 100%;
-        padding-top: 15px;
+        display: flex; align-items: center; justify-content: flex-end;
+        height: 100%; padding-top: 15px;
     }
     </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 3. CABEÇALHO PADRÃO (TÍTULO E LOGOS NA MESMA LINHA)
+# 3. CABEÇALHO PADRÃO
 # =====================================================================
 col_titulo, col_espaco, col_logo1, col_logo2 = st.columns([5.5, 1.5, 1.5, 1.5])
 
@@ -92,26 +83,26 @@ with col_logo2:
 st.markdown("---")
 
 # =====================================================================
-# 4. CARREGAMENTO DOS DADOS (AGENDAMENTO + HISTÓRICO)
+# 4. CARREGAMENTO DOS DADOS (AGENDAMENTO + HISTÓRICO + INVENTÁRIO)
 # =====================================================================
 @st.cache_data(ttl=600)
 def carregar_dados_agenda(caminho_arquivo):
-    if not caminho_arquivo:
-        return pd.DataFrame(columns=['Situação', 'Status Alarme', 'Data Agendamento', 'Nome', 'ID', 'Tipo Equipamento', 'Marca', 'U.S.'])
+    if not caminho_arquivo: return pd.DataFrame(columns=['Situação', 'Status Alarme', 'Data Agendamento', 'Nome', 'ID', 'Tipo Equipamento', 'Marca', 'U.S.'])
     try: df = pd.read_excel(caminho_arquivo, skiprows=5)
     except: df = pd.read_csv(caminho_arquivo.replace('.xlsx', '.csv'), skiprows=5, sep=',')
-        
     df['Data Agendamento'] = pd.to_datetime(df['Data Agendamento'], errors='coerce')
-    df = df.dropna(subset=['Data Agendamento']).copy() 
-    return df
+    return df.dropna(subset=['Data Agendamento']).copy() 
 
 @st.cache_data(ttl=600)
-def carregar_historico_encerradas():
-    return carregar_os_encerradas()
+def carregar_historico_encerradas(): return carregar_os_encerradas()
 
-with st.spinner("Sincronizando calendário e base de auditoria..."):
+@st.cache_data(ttl=600)
+def carregar_inventario(): return carregar_mais_recente("04.Inventário")
+
+with st.spinner("Sincronizando calendário, inventário e base de auditoria..."):
     df_agenda = carregar_dados_agenda(caminho_atual)
     df_enc = carregar_historico_encerradas()
+    df_inv = carregar_inventario()
 
 hoje = pd.to_datetime('today').normalize()
 
@@ -135,12 +126,11 @@ if not df_agenda.empty:
 tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria VIGIOSP (Linha do Tempo)"])
 
 # ---------------------------------------------------------------------
-# ABA 1: CALENDÁRIO OPERACIONAL (O SEU CÓDIGO ORIGINAL)
+# ABA 1: CALENDÁRIO OPERACIONAL
 # ---------------------------------------------------------------------
 with tab_calendario:
     st.info(f"🕒 **Última Atualização da Base:** {data_cron}")
     
-    # Filtro movido para dentro da aba para não sujar a VIGIOSP
     status_opcoes = ["NO PRAZO", "ATRASADO", "EXECUTADO"]
     status_selecionados = st.multiselect("Filtrar Visão do Calendário por Status:", options=status_opcoes, default=["NO PRAZO", "ATRASADO"])
     
@@ -208,7 +198,7 @@ with tab_calendario:
 
 
 # ---------------------------------------------------------------------
-# ABA 2: AUDITORIA VIGIOSP (GANTT E PDF)
+# ABA 2: AUDITORIA VIGIOSP (SUPER BUSCA INTELIGENTE)
 # ---------------------------------------------------------------------
 with tab_auditoria:
     st.markdown("Filtre o equipamento para rastrear as manutenções já executadas e as próximas projetadas no agendamento.")
@@ -216,7 +206,6 @@ with tab_auditoria:
     with st.container(border=True):
         c_busca1, c_busca2 = st.columns([1.5, 1.5])
         
-        # Consolida lista de equipamentos buscando as colunas EXATAS informadas
         eq_disp = set()
         c_desc_enc = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if not df_enc.empty and c in df_enc.columns), None)
         if c_desc_enc: eq_disp.update(df_enc[c_desc_enc].dropna().unique())
@@ -225,19 +214,35 @@ with tab_auditoria:
         if c_desc_ag: eq_disp.update(df_agenda[c_desc_ag].dropna().unique())
         
         filtro_aud_eq = c_busca1.multiselect("Equipamento(s):", sorted(list(eq_disp)), placeholder="Busque os equipamentos alvo da auditoria...")
-        
-        # CAIXA INTELIGENTE DE MULTI-BUSCA POR VÍRGULA
-        filtro_aud_sn = c_busca2.text_input("Número(s) de Série (Separe por vírgula):", placeholder="Ex: 1234, ABCD, 9876...")
+        filtro_aud_sn = c_busca2.text_input("Número(s) de Série ou Patrimônio (Separe por vírgula):", placeholder="Ex: 59885V/00, HU-00923, 9876...")
 
     if filtro_aud_eq or filtro_aud_sn:
         lista_auditoria = []
-        
-        # Prepara a lista de N/S para busca múltipla usando Expressão Regular (Regex)
         padrao_sn = None
+        
+        # MÁGICA: SUPER BUSCA CRUZADA COM INVENTÁRIO
         if filtro_aud_sn:
             import re
-            lista_sns = [re.escape(s.strip()) for s in filtro_aud_sn.split(',') if s.strip()]
-            if lista_sns: padrao_sn = '|'.join(lista_sns)
+            termos_iniciais = [s.strip() for s in filtro_aud_sn.split(',') if s.strip()]
+            termos_expandidos = set(termos_iniciais)
+            
+            # Se a VIGIOSP der Patrimônio, achamos o N/S. Se der o N/S, achamos o Patrimônio.
+            if not df_inv.empty:
+                c_inv_sn = next((c for c in ['N.º SÉRIE', 'N. SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_inv.columns), None)
+                c_inv_id = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_inv.columns), None)
+                
+                if c_inv_sn and c_inv_id:
+                    mask_inv = df_inv[c_inv_sn].astype(str).isin(termos_iniciais) | df_inv[c_inv_id].astype(str).isin(termos_iniciais)
+                    termos_expandidos.update(df_inv.loc[mask_inv, c_inv_sn].dropna().astype(str).tolist())
+                    termos_expandidos.update(df_inv.loc[mask_inv, c_inv_id].dropna().astype(str).tolist())
+            
+            termos_expandidos.discard('')
+            termos_expandidos.discard('nan')
+            termos_expandidos.discard('N/I')
+            termos_expandidos.discard('None')
+            
+            if termos_expandidos:
+                padrao_sn = '|'.join([re.escape(t) for t in termos_expandidos])
         
         # 1. Puxando o Passado (O.S. Encerradas)
         if not df_enc.empty:
@@ -250,10 +255,9 @@ with tab_auditoria:
 
             if c_desc_enc and filtro_aud_eq: df_enc_aud = df_enc_aud[df_enc_aud[c_desc_enc].isin(filtro_aud_eq)]
             
-            # Aplica busca no NS exato (ou no Identificador como plano B)
             if padrao_sn: 
                 mask_sn = df_enc_aud[c_sn_enc].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_sn_enc else False
-                c_id_enc = next((c for c in ['IDENTIFICADOR', 'ID'] if c in df_enc_aud.columns), None)
+                c_id_enc = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_enc_aud.columns), None)
                 mask_id = df_enc_aud[c_id_enc].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_enc else False
                 df_enc_aud = df_enc_aud[mask_sn | mask_id]
             
@@ -269,9 +273,8 @@ with tab_auditoria:
             if c_desc_ag and filtro_aud_eq: df_ag_aud = df_ag_aud[df_ag_aud[c_desc_ag].isin(filtro_aud_eq)]
             
             c_sn_ag = next((c for c in ['N° Série', 'Nº Série', 'N. Série', 'N.Série'] if c in df_ag_aud.columns), None)
-            c_id_ag = next((c for c in ['ID', 'Identificador'] if c in df_ag_aud.columns), None)
+            c_id_ag = next((c for c in ['ID', 'Identificador', 'Patrimônio', 'Patrimonio'] if c in df_ag_aud.columns), None)
             
-            # Puxa o NS direto da coluna oficial que você informou
             if c_sn_ag:
                 df_ag_aud['N.º SÉRIE'] = df_ag_aud[c_sn_ag].fillna('N/I').astype(str).str.strip()
             else:
@@ -279,7 +282,6 @@ with tab_auditoria:
                 
             df_ag_aud['N.º SÉRIE'] = df_ag_aud['N.º SÉRIE'].replace({'nan': 'N/I', 'None': 'N/I', '': 'N/I'})
             
-            # Aplica o padrão de busca múltiplo
             if padrao_sn: 
                 mask_sn = df_ag_aud['N.º SÉRIE'].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True)
                 mask_id = df_ag_aud[c_id_ag].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_ag else False
@@ -303,13 +305,13 @@ with tab_auditoria:
             df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce').dt.normalize()
             df_auditoria = df_auditoria.dropna(subset=['Data_Inicio']).sort_values('Data_Inicio', ascending=False)
             
-            # Para o Gráfico Gantt funcionar, datas de início e fim não podem ser idênticas (soma 1 dia visual)
             mask_same_day = df_auditoria['Data_Inicio'] == df_auditoria['Data_Fim']
             df_auditoria.loc[mask_same_day, 'Data_Fim'] = df_auditoria.loc[mask_same_day, 'Data_Inicio'] + pd.Timedelta(days=1)
             
-            df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'].astype(str) + ")"
+            # Se algum campo de N/S estiver "N/I", usamos regex para tirar o N/S do ID da O.S (útil se o sistema misturar tudo)
+            df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
+            df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
 
-            # Gráfico Gantt Múltiplo
             with st.container(border=True):
                 st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
                 cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000'}
@@ -322,7 +324,6 @@ with tab_auditoria:
                 fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 60), margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_gantt, use_container_width=True)
 
-            # Relatório em Tabela (Pronto para Ctrl+P)
             with st.container(border=True):
                 st.markdown("##### 📋 Relatório Consolidado de Engenharia Clínica")
                 st.caption("Pressione **Ctrl + P** e escolha 'Salvar como PDF' para exportar esta visão combinada.")
@@ -330,7 +331,6 @@ with tab_auditoria:
                 df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
                 df_print['Data_Inicio'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
                 
-                # Desfaz o +1 dia do gráfico para exibir a data real na tabela
                 df_print['Data_Fim'] = np.where(df_print['O.S.'] == 'AGENDADO', '-', (pd.to_datetime(df_print['Data_Fim'], format='%d/%m/%Y', errors='coerce') - pd.Timedelta(days=1)).dt.strftime('%d/%m/%Y').where(mask_same_day, df_auditoria['Data_Fim'].dt.strftime('%d/%m/%Y')))
                 df_print['Data_Fim'] = df_print['Data_Fim'].replace({'NaT': '-', 'nan': '-'})
                 
