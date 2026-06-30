@@ -261,7 +261,7 @@ with tab_auditoria:
                 df_enc_aud['Status'] = '✔️ Executado'
                 lista_auditoria.append(df_enc_aud)
 
-        # 2. Puxando o Futuro (Agendamento MP)
+    # 2. Puxando o Futuro (Agendamento MP)
         if not df_agenda.empty:
             df_ag_aud = df_agenda.copy()
             if filtro_aud_eq: df_ag_aud = df_ag_aud[df_ag_aud['Tipo Equipamento'].isin(filtro_aud_eq)]
@@ -270,7 +270,10 @@ with tab_auditoria:
             if padrao_sn: df_ag_aud = df_ag_aud[df_ag_aud['ID'].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True)]
             
             if not df_ag_aud.empty:
-                df_ag_aud['N.º SÉRIE'] = df_ag_aud['ID'].astype(str).apply(lambda x: x.split('SN:')[-1].strip() if 'SN:' in x else x)
+                # CORREÇÃO: Usando formatação em vetor (.str) que é blindada contra vazios (NaN/float)
+                df_ag_aud['N.º SÉRIE'] = df_ag_aud['ID'].fillna('').astype(str).str.split('SN:').str[-1].str.strip()
+                df_ag_aud['N.º SÉRIE'] = df_ag_aud['N.º SÉRIE'].replace({'nan': 'N/I', 'None': 'N/I', '': 'N/I'})
+                
                 df_ag_aud = df_ag_aud[['Tipo Equipamento', 'N.º SÉRIE', 'Data Agendamento', 'Nome', 'Status']].copy()
                 df_ag_aud.rename(columns={'Tipo Equipamento': 'DESCRIÇÃO', 'Data Agendamento': 'Data_Inicio', 'Nome': 'Serviço'}, inplace=True)
                 df_ag_aud['O.S.'] = 'AGENDADO'
