@@ -57,7 +57,7 @@ def gerar_pdf_relatorio(df):
     
     # Cabeçalho do Documento PDF
     story.append(Paragraph("<b>RELATÓRIO CONSOLIDADO DE MANUTENÇÃO PROGRAMADA</b>", title_style))
-    story.append(Paragraph(f"Documento de Evidência para Auditoria Sanitária | HU-UNIVASF<br>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
+    story.append(Paragraph(f"Documento de Evidência para Auditoria Sanitária | HU-UNIVASF<br/>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
     story.append(Spacer(1, 5))
     
     # Montagem dos cabeçalhos da tabela no PDF
