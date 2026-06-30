@@ -51,7 +51,7 @@ def gerar_pdf_relatorio(df, fig_grafico=None):
     cell_style = ParagraphStyle('TableCell', parent=styles['Normal'], fontSize=8, leading=10, alignment=0)
     
     story.append(Paragraph("<b>RELATÓRIO CONSOLIDADO DE MANUTENÇÃO PROGRAMADA</b>", title_style))
-    story.append(Paragraph(f"Documento de Evidência para Auditoria Sanitária | HU-UNIVASF<br/>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
+    story.append(Paragraph(f"Documento de Evidência para Auditoria | HU-UNIVASF<br/>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
     story.append(Spacer(1, 5))
     
     if fig_grafico is not None:
@@ -406,13 +406,13 @@ with tab_auditoria:
                 ordenacao = col_f4.selectbox("Ordenar Tabela/Gráfico por:", opcoes_ord)
                 
                 st.markdown("<hr style='margin: 5px 0px; border-top: 1px solid #e6e6e6;'>", unsafe_allow_html=True)
-                apenas_ultima = st.checkbox("🎯 Ocultar histórico antigo e mostrar apenas a **ÚLTIMA** manutenção executada de cada equipamento.")
+                apenas_ultima = st.checkbox("🎯 EXIBIR APENAS A **ÚLTIMA** MANUTENÇÃO EXECUTADA.")
 
             # ---- AVISO DINÂMICO DE IMPLANTAÇÃO ----
             if filtro_servico:
                 implantacao_selecionados = [s for s in filtro_servico if s.upper() in ['INSPEÇÃO E TESTE OPERACIONAL', 'SEGURANÇA ELÉTRICA']]
                 if implantacao_selecionados:
-                    st.info(f"🚧 **Nota para Auditoria:** O(s) serviço(s) de **{', '.join(implantacao_selecionados)}** encontram-se atualmente em fase de implantação/piloto na instituição.")
+                    st.info(f"🚧 **Nota:** O(s) serviço(s) de **{', '.join(implantacao_selecionados)}** encontram-se atualmente em fase de implantação.")
             # ---------------------------------------
 
             if filtro_status: df_auditoria = df_auditoria[df_auditoria['Status_Legenda'].isin(filtro_status)]
@@ -435,7 +435,7 @@ with tab_auditoria:
 
             if not df_auditoria.empty:
                 with st.container(border=True):
-                    st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
+                    st.markdown("##### ⏱️ Linha do Tempo de Intervenções")
                     cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
                     
                     fig_gantt = px.timeline(
@@ -465,9 +465,9 @@ with tab_auditoria:
                     pdf_gerado = gerar_pdf_relatorio(df_print, fig_gantt)
                     
                     st.download_button(
-                        label="📥 Baixar Dossiê de Auditoria VIGIOSP (PDF + Gráfico)",
+                        label="📥 Baixar Relatório)",
                         data=pdf_gerado,
-                        file_name=f"Relatorio_VIGIOSP_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                        file_name=f"Relatorio_Manutenção_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                         mime="application/pdf"
                     )
                     st.write("")
