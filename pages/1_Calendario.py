@@ -353,23 +353,22 @@ with tab_auditoria:
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
 
             # Voltamos para as Barrinhas (Timeline) limpas!
-            with st.container(border=True):
+       with st.container(border=True):
                 st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
                 
                 cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
                 
                 fig_gantt = px.timeline(
-                    df_auditoria, 
-                    x_start="Data_Inicio", 
-                    x_end="Data_Fim_Vis",  
-                    y="Equip_ID", 
-                    color="Status_Legenda", 
-                    color_discrete_map=cores_status, 
-                    hover_name="O.S.", 
-                    hover_data={"Status": True, "Serviço": True, "Status_Legenda": False, "Data_Fim_Vis": False, "Data_Inicio": "|%d/%m/%Y"} 
+                    df_auditoria, x_start="Data_Inicio", x_end="Data_Fim_Vis", y="Equip_ID", color="Status_Legenda",
+                    color_discrete_map=cores_status, hover_name="O.S.", hover_data=["Serviço"]
                 )
                 fig_gantt.update_yaxes(autorange="reversed")
-                fig_gantt.update_xaxes(rangeslider_visible=True) # A barrinha de zoom no rodapé continua!
+                
+                # A MÁGICA: Desligando o duplicador de gráfico no rodapé
+                fig_gantt.update_xaxes(rangeslider_visible=False)
+                
+                fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 60), margin=dict(l=0, r=0, t=10, b=0))
+                st.plotly_chart(fig_gantt, use_container_width=True)
                 
                 altura_grafico = max(400, len(df_auditoria['Equip_ID'].unique()) * 45)
                 fig_gantt.update_layout(height=altura_grafico, margin=dict(l=0, r=0, t=10, b=0))
