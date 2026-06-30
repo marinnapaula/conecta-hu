@@ -272,7 +272,7 @@ with tab_auditoria:
                 df_enc_aud['Status'] = '✔️ Executado'
                 lista_auditoria.append(df_enc_aud)
 
-        # 2. VIA DO PRESENTE: O.S. Pendentes (Em Execução com Estado Interno do Sistema)
+      # 2. VIA DO PRESENTE: O.S. Pendentes (Em Execução com Estado Interno do Sistema)
         if not df_pend_bruto.empty:
             df_p_aud = df_pend_bruto.copy()
             c_os_p = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_p_aud.columns), None)
@@ -280,8 +280,11 @@ with tab_auditoria:
             c_ab_p = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_p_aud.columns), None)
             c_cl_p = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_p_aud.columns), None)
             c_est_p = next((c for c in ['ESTADO', 'STATUS', 'SITUAÇÃO'] if c in df_p_aud.columns), None)
+            
+            # CORREÇÃO: Busca inteligente da coluna de descrição ESPECÍFICA para a base de Pendentes
+            c_desc_p = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if c in df_p_aud.columns), None)
 
-            if c_desc_enc and filtro_aud_eq: df_p_aud = df_p_aud[df_p_aud[c_desc_enc].isin(filtro_aud_eq)]
+            if c_desc_p and filtro_aud_eq: df_p_aud = df_p_aud[df_p_aud[c_desc_p].isin(filtro_aud_eq)]
             
             if padrao_sn: 
                 mask_sn = df_p_aud[c_sn_p].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_sn_p else False
@@ -292,9 +295,10 @@ with tab_auditoria:
             if c_cl_p and not df_p_aud.empty:
                 df_p_aud = df_p_aud[df_p_aud[c_cl_p].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA|SEGURANÇA|INSPEÇÃO|TESTE|VALIDAÇÃO|QUALIFICAÇÃO')]
 
-            if not df_p_aud.empty and all([c_os_p, c_desc_enc, c_sn_p, c_ab_p, c_cl_p]):
-                df_p_aud = df_p_aud[[c_os_p, c_desc_enc, c_sn_p, c_ab_p, c_cl_p, c_est_p]].copy() if c_est_p else df_p_aud[[c_os_p, c_desc_enc, c_sn_p, c_ab_p, c_cl_p]].copy()
-                df_p_aud.rename(columns={c_os_p: 'O.S.', c_desc_enc: 'DESCRIÇÃO', c_sn_p: 'N.º SÉRIE', c_ab_p: 'Data_Inicio', c_cl_p: 'Serviço'}, inplace=True)
+            # Usa o c_desc_p para fatiar e renomear com segurança
+            if not df_p_aud.empty and all([c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p]):
+                df_p_aud = df_p_aud[[c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p, c_est_p]].copy() if c_est_p else df_p_aud[[c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p]].copy()
+                df_p_aud.rename(columns={c_os_p: 'O.S.', c_desc_p: 'DESCRIÇÃO', c_sn_p: 'N.º SÉRIE', c_ab_p: 'Data_Inicio', c_cl_p: 'Serviço'}, inplace=True)
                 df_p_aud['Data_Fim'] = pd.Timestamp(datetime.today().date())
                 
                 if c_est_p:
