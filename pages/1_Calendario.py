@@ -7,7 +7,7 @@ import glob
 import numpy as np
 from datetime import datetime, timezone, timedelta
 
-# Importando a inteligência do motor para puxar o histórico e o inventário
+# Importando a inteligência do motor para puxar o histórico, pendências e o inventário
 from motor_dados import carregar_mais_recente, carregar_os_encerradas
 
 # =====================================================================
@@ -83,7 +83,7 @@ with col_logo2:
 st.markdown("---")
 
 # =====================================================================
-# 4. CARREGAMENTO DOS DADOS (AGENDAMENTO + HISTÓRICO + INVENTÁRIO)
+# 4. CARREGAMENTO DOS DADOS (AGENDAMENTO + HISTÓRICO + INVENTÁRIO + PENDENTES)
 # =====================================================================
 @st.cache_data(ttl=600)
 def carregar_dados_agenda(caminho_arquivo):
@@ -99,10 +99,14 @@ def carregar_historico_encerradas(): return carregar_os_encerradas()
 @st.cache_data(ttl=600)
 def carregar_inventario(): return carregar_mais_recente("04.Inventário")
 
-with st.spinner("Sincronizando calendário, inventário e base de auditoria..."):
+@st.cache_data(ttl=600)
+def carregar_pendentes(): return carregar_mais_recente("02.OS_Pendentes")
+
+with st.spinner("Sincronizando bancos de dados de auditoria..."):
     df_agenda = carregar_dados_agenda(caminho_atual)
     df_enc = carregar_historico_encerradas()
     df_inv = carregar_inventario()
+    df_pend_bruto = carregar_pendentes()
 
 hoje = pd.to_datetime('today').normalize()
 
@@ -198,15 +202,14 @@ with tab_calendario:
 
 
 # ---------------------------------------------------------------------
-# ABA 2: AUDITORIA VIGIOSP (SUPER BUSCA INTELIGENTE)
+# ABA 2: AUDITORIA VIGIOSP (SUPER BUSCA INTELIGENTE COM TRÊS VIAS)
 # ---------------------------------------------------------------------
 with tab_auditoria:
-    st.markdown("Filtre o equipamento para rastrear as manutenções já executadas e as próximas projetadas no agendamento.")
+    st.markdown("Filtre o equipamento para rastrear as manutenções já executadas, as que estão em execução ativa e as próximas projetadas.")
     
     with st.container(border=True):
         c_busca1, c_busca2 = st.columns([1.5, 1.5])
         
-        # Consolida lista de equipamentos buscando as colunas EXATAS informadas
         eq_disp = set()
         c_desc_enc = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if not df_enc.empty and c in df_enc.columns), None)
         if c_desc_enc: eq_disp.update(df_enc[c_desc_enc].dropna().unique())
@@ -215,15 +218,12 @@ with tab_auditoria:
         if c_desc_ag: eq_disp.update(df_agenda[c_desc_ag].dropna().unique())
         
         filtro_aud_eq = c_busca1.multiselect("Equipamento(s):", sorted(list(eq_disp)), placeholder="Busque os equipamentos alvo da auditoria...")
-        
-        # CAIXA INTELIGENTE DE MULTI-BUSCA POR VÍRGULA
         filtro_aud_sn = c_busca2.text_input("Número(s) de Série ou Patrimônio (Separe por vírgula):", placeholder="Ex: 59885V/00, HU-00923, 9876...")
 
     if filtro_aud_eq or filtro_aud_sn:
         lista_auditoria = []
         padrao_sn = None
         
-        # SUPER BUSCA CRUZADA COM INVENTÁRIO
         if filtro_aud_sn:
             import re
             termos_iniciais = [s.strip() for s in filtro_aud_sn.split(',') if s.strip()]
@@ -246,7 +246,7 @@ with tab_auditoria:
             if termos_expandidos:
                 padrao_sn = '|'.join([re.escape(t) for t in termos_expandidos])
         
-        # 1. Puxando o Passado (O.S. Encerradas)
+        # 1. VIA DO PASSADO: O.S. Encerradas (Filtrado estritamente por Programadas)
         if not df_enc.empty:
             df_enc_aud = df_enc.copy()
             c_os = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_enc_aud.columns), None)
@@ -263,7 +263,6 @@ with tab_auditoria:
                 mask_id = df_enc_aud[c_id_enc].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_enc else False
                 df_enc_aud = df_enc_aud[mask_sn | mask_id]
             
-            # FILTRO DA ALIANÇA: Garante que só entram as Executadas que forem do plano programado (Ignora Corretivas/Quebras)
             if c_cl and not df_enc_aud.empty:
                 df_enc_aud = df_enc_aud[df_enc_aud[c_cl].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA|SEGURANÇA|INSPEÇÃO|TESTE|VALIDAÇÃO|QUALIFICAÇÃO')]
             
@@ -273,7 +272,40 @@ with tab_auditoria:
                 df_enc_aud['Status'] = '✔️ Executado'
                 lista_auditoria.append(df_enc_aud)
 
-        # 2. Puxando o Futuro (Agendamento MP)
+        # 2. VIA DO PRESENTE: O.S. Pendentes (Em Execução com Estado Interno do Sistema)
+        if not df_pend_bruto.empty:
+            df_p_aud = df_pend_bruto.copy()
+            c_os_p = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_p_aud.columns), None)
+            c_sn_p = next((c for c in ['N. SÉRIE', 'N.º SÉRIE', 'Nº SÉRIE', 'SÉRIE'] if c in df_p_aud.columns), None)
+            c_ab_p = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_p_aud.columns), None)
+            c_cl_p = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_p_aud.columns), None)
+            c_est_p = next((c for c in ['ESTADO', 'STATUS', 'SITUAÇÃO'] if c in df_p_aud.columns), None)
+
+            if c_desc_enc and filtro_aud_eq: df_p_aud = df_p_aud[df_p_aud[c_desc_enc].isin(filtro_aud_eq)]
+            
+            if padrao_sn: 
+                mask_sn = df_p_aud[c_sn_p].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_sn_p else False
+                c_id_p = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_p_aud.columns), None)
+                mask_id = df_p_aud[c_id_p].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_id_p else False
+                df_p_aud = df_p_aud[mask_sn | mask_id]
+                
+            if c_cl_p and not df_p_aud.empty:
+                df_p_aud = df_p_aud[df_p_aud[c_cl_p].astype(str).str.upper().str.contains('PREV|CALIB|MP|PROG|ROTINA|SEGURANÇA|INSPEÇÃO|TESTE|VALIDAÇÃO|QUALIFICAÇÃO')]
+
+            if not df_p_aud.empty and all([c_os_p, c_desc_enc, c_sn_p, c_ab_p, c_cl_p]):
+                df_p_aud = df_p_aud[[c_os_p, c_desc_enc, c_sn_p, c_ab_p, c_cl_p, c_est_p]].copy() if c_est_p else df_p_aud[[c_os_p, c_desc_enc, c_sn_p, c_ab_p, c_cl_p]].copy()
+                df_p_aud.rename(columns={c_os_p: 'O.S.', c_desc_enc: 'DESCRIÇÃO', c_sn_p: 'N.º SÉRIE', c_ab_p: 'Data_Inicio', c_cl_p: 'Serviço'}, inplace=True)
+                df_p_aud['Data_Fim'] = pd.Timestamp(datetime.today().date())
+                
+                if c_est_p:
+                    df_p_aud['Status'] = '⚙️ Em Execução (' + df_p_aud[c_est_p].astype(str).str.strip().str.upper() + ')'
+                else:
+                    df_p_aud['Status'] = '⚙️ Em Execução'
+                    
+                df_p_aud.drop(columns=[c_est_p], inplace=True, errors='ignore')
+                lista_auditoria.append(df_p_aud)
+
+        # 3. VIA DO FUTURO: Agendamento MP
         if not df_agenda.empty:
             df_ag_aud = df_agenda.copy()
             if c_desc_ag and filtro_aud_eq: df_ag_aud = df_ag_aud[df_ag_aud[c_desc_ag].isin(filtro_aud_eq)]
@@ -302,7 +334,7 @@ with tab_auditoria:
                 df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
                 lista_auditoria.append(df_ag_aud)
 
-        # 3. Consolidação e Gráficos
+        # 4. Consolidação Geral e Plotagem
         if lista_auditoria:
             df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
             df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce').dt.normalize()
@@ -315,11 +347,15 @@ with tab_auditoria:
             df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
 
-            # O Gantt agora exibe tudo de forma limpa, pois as encerradas foram filtradas na origem
             with st.container(border=True):
                 st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
                 
+                # Mapeamento Dinâmico de Cores para engolir qualquer variação de "Em Execução (...)"
                 cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000'}
+                for st_nome in df_auditoria['Status'].unique():
+                    if 'Em Execução' in st_nome:
+                        cores_status[st_nome] = '#FF8C00' # Laranja escuro para as ordens ativas intermediárias
+                
                 fig_gantt = px.timeline(
                     df_auditoria, x_start="Data_Inicio", x_end="Data_Fim", y="Equip_ID", color="Status",
                     color_discrete_map=cores_status, hover_name="O.S.", hover_data=["Serviço"]
@@ -335,12 +371,17 @@ with tab_auditoria:
                 df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
                 df_print['Data_Inicio'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
                 
-                df_print['Data_Fim'] = np.where(df_print['O.S.'] == 'AGENDADO', '-', (pd.to_datetime(df_print['Data_Fim'], format='%d/%m/%Y', errors='coerce') - pd.Timedelta(days=1)).dt.strftime('%d/%m/%Y').where(mask_same_day, df_auditoria['Data_Fim'].dt.strftime('%d/%m/%Y')))
-                df_print['Data_Fim'] = df_print['Data_Fim'].replace({'NaT': '-', 'nan': '-'})
-                
-                st.dataframe(
-                    df_print, use_container_width=True, hide_index=True,
-                    column_config={"O.S.": "Nº O.S.", "DESCRIÇÃO": "Equipamento", "N.º SÉRIE": "Nº Série", "Data_Inicio": "Abertura / Prevista", "Data_Fim": "Conclusão Real"}
+                # Monta a visualização final da coluna de conclusão de forma inteligente
+                df_print['Conclusão Real'] = np.select(
+                    [df_print['O.S.'] == 'AGENDADO', df_print['Status'].str.contains('Execução')],
+                    ['-', 'EM ABERTO'],
+                    default=(pd.to_datetime(df_auditoria['Data_Fim']) - pd.Timedelta(days=1)).dt.strftime('%d/%m/%Y').where(mask_same_day, df_auditoria['Data_Fim'].dt.strftime('%d/%m/%Y'))
                 )
+                
+                df_print.drop(columns=['Data_Fim'], inplace=True)
+                df_print.rename(columns={'Data_Inicio': 'Abertura / Prevista'}, inplace=True)
+                df_print['Conclusão Real'] = df_print['Conclusão Real'].replace({'NaT': '-', 'nan': '-'})
+                
+                st.dataframe(df_print, use_container_width=True, hide_index=True)
         else:
             st.warning("Nenhum histórico encontrado para os parâmetros informados.")
