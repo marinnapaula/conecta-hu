@@ -338,54 +338,72 @@ with tab_auditoria:
                 df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
                 lista_auditoria.append(df_ag_aud)
 
-        # 4. Consolidação Geral e Plotagem
+        # 4.Consolidação e Gráficos
         if lista_auditoria:
             df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
             df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce').dt.normalize()
             df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce').dt.normalize()
-            df_auditoria = df_auditoria.dropna(subset=['Data_Inicio']).sort_values('Data_Inicio', ascending=False)
+            df_auditoria = df_auditoria.dropna(subset=['Data_Inicio']).sort_values(['DESCRIÇÃO', 'Data_Inicio'], ascending=[True, False])
             
+            # TRUQUE VISUAL 1: Agrupar as variações de "Em Execução" para a legenda não estourar
+            df_auditoria['Status_Legenda'] = df_auditoria['Status'].apply(lambda x: '⚙️ Em Execução' if 'Em Execução' in str(x) else x)
+            
+            # TRUQUE VISUAL 2: Se a data de início e fim são iguais, damos um "peso" de 15 dias apenas para o gráfico desenhar um bloco legível na escala de 5 anos
             mask_same_day = df_auditoria['Data_Inicio'] == df_auditoria['Data_Fim']
-            df_auditoria.loc[mask_same_day, 'Data_Fim'] = df_auditoria.loc[mask_same_day, 'Data_Inicio'] + pd.Timedelta(days=1)
+            df_auditoria['Data_Fim_Vis'] = df_auditoria['Data_Fim']
+            df_auditoria.loc[mask_same_day, 'Data_Fim_Vis'] = df_auditoria.loc[mask_same_day, 'Data_Inicio'] + pd.Timedelta(days=15)
             
             df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
 
+            # O Gantt limpo e focado
             with st.container(border=True):
                 st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
                 
-                # Mapeamento Dinâmico de Cores para engolir qualquer variação de "Em Execução (...)"
-                cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000'}
-                for st_nome in df_auditoria['Status'].unique():
-                    if 'Em Execução' in st_nome:
-                        cores_status[st_nome] = '#FF8C00' # Laranja escuro para as ordens ativas intermediárias
+                cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
                 
                 fig_gantt = px.timeline(
-                    df_auditoria, x_start="Data_Inicio", x_end="Data_Fim", y="Equip_ID", color="Status",
-                    color_discrete_map=cores_status, hover_name="O.S.", hover_data=["Serviço"]
+                    df_auditoria, 
+                    x_start="Data_Inicio", 
+                    x_end="Data_Fim_Vis",  # Usamos a data inflada visualmente
+                    y="Equip_ID", 
+                    color="Status_Legenda", # Usamos a legenda agrupada e limpa
+                    color_discrete_map=cores_status, 
+                    hover_name="O.S.", 
+                    # Mostramos o status REAL detalhado no balãozinho, e escondemos as colunas técnicas visuais
+                    hover_data={"Status": True, "Serviço": True, "Status_Legenda": False, "Data_Fim_Vis": False} 
                 )
                 fig_gantt.update_yaxes(autorange="reversed")
-                fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 60), margin=dict(l=0, r=0, t=10, b=0))
+                
+                # TRUQUE VISUAL 3: Barra de rolagem inferior para zoom temporal
+                fig_gantt.update_xaxes(rangeslider_visible=True)
+                
+                # Altura ajustável: não fica esmagado se tiver 30 equipamentos
+                altura_grafico = max(400, len(df_auditoria['Equip_ID'].unique()) * 45)
+                fig_gantt.update_layout(height=altura_grafico, margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_gantt, use_container_width=True)
 
             with st.container(border=True):
                 st.markdown("##### 📋 Relatório Consolidado de Engenharia Clínica")
                 st.caption("Pressione **Ctrl + P** e escolha 'Salvar como PDF' para exportar esta visão combinada.")
                 
+                # A tabela usa os dados REAIS, intactos.
                 df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
                 df_print['Data_Inicio'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
                 
-                # Monta a visualização final da coluna de conclusão de forma inteligente
                 df_print['Conclusão Real'] = np.select(
                     [df_print['O.S.'] == 'AGENDADO', df_print['Status'].str.contains('Execução')],
                     ['-', 'EM ABERTO'],
-                    default=(pd.to_datetime(df_auditoria['Data_Fim']) - pd.Timedelta(days=1)).dt.strftime('%d/%m/%Y').where(mask_same_day, df_auditoria['Data_Fim'].dt.strftime('%d/%m/%Y'))
+                    default=df_print['Data_Fim'].dt.strftime('%d/%m/%Y')
                 )
                 
                 df_print.drop(columns=['Data_Fim'], inplace=True)
                 df_print.rename(columns={'Data_Inicio': 'Abertura / Prevista'}, inplace=True)
                 df_print['Conclusão Real'] = df_print['Conclusão Real'].replace({'NaT': '-', 'nan': '-'})
                 
-                st.dataframe(df_print, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    df_print, use_container_width=True, hide_index=True,
+                    column_config={"O.S.": "Nº O.S.", "DESCRIÇÃO": "Equipamento", "N.º SÉRIE": "Nº Série", "Status": "Situação Atual"}
+                )
         else:
             st.warning("Nenhum histórico encontrado para os parâmetros informados.")
