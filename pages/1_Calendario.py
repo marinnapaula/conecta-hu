@@ -35,7 +35,7 @@ else:
     data_cron = "Aguardando sincronização..."
 
 # =====================================================================
-# 1. FUNÇÃO EXCLUSIVA DE GERAÇÃO DE PDF COM GANTT (VIGIOSP)
+# 1. FUNÇÃO EXCLUSIVA DE GERAÇÃO DE PDF COM GANTT 
 # =====================================================================
 def gerar_pdf_relatorio(df, fig_grafico=None):
     buffer = BytesIO()
@@ -51,7 +51,7 @@ def gerar_pdf_relatorio(df, fig_grafico=None):
     cell_style = ParagraphStyle('TableCell', parent=styles['Normal'], fontSize=8, leading=10, alignment=0)
     
     story.append(Paragraph("<b>RELATÓRIO CONSOLIDADO DE MANUTENÇÃO PROGRAMADA</b>", title_style))
-    story.append(Paragraph(f"Documento de Evidência para Auditoria Sanitária | HU-UNIVASF<br/>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
+    story.append(Paragraph(f"Documento de Evidência para Auditoria | HU-UNIVASF<br/>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
     story.append(Spacer(1, 5))
     
     # INSERE A FOTO DO GRÁFICO NO PDF COM PROPORÇÃO INTELIGENTE
@@ -244,7 +244,7 @@ with tab_calendario:
 
 
 # ---------------------------------------------------------------------
-# ABA 2: AUDITORIA VIGIOSP
+# ABA 2: AUDITORIA 
 # ---------------------------------------------------------------------
 with tab_auditoria:
     st.markdown("Rastreie as manutenções programadas inserindo diretamente os números de série ou patrimônios da lista da auditoria.")
@@ -392,7 +392,7 @@ with tab_auditoria:
 
             if not df_auditoria.empty:
                 with st.container(border=True):
-                    st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
+                    st.markdown("##### ⏱️ Linha do Tempo de Intervenções ")
                     cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
                     
                     fig_gantt = px.timeline(
@@ -424,9 +424,9 @@ with tab_auditoria:
                     pdf_gerado = gerar_pdf_relatorio(df_print, fig_gantt)
                     
                     st.download_button(
-                        label="📥 Baixar Dossiê de Auditoria VIGIOSP (PDF + Gráfico)",
+                        label="📥 Baixar Relatório",
                         data=pdf_gerado,
-                        file_name=f"Relatorio_VIGIOSP_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                        file_name=f"Relatorio_Auditoria_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                         mime="application/pdf"
                     )
                     st.write("")
