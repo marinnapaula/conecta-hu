@@ -7,6 +7,13 @@ import glob
 import numpy as np
 from datetime import datetime, timezone, timedelta
 import re
+from io import BytesIO
+
+# Importações necessárias para construir o PDF nativo
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 # Importando a inteligência do motor
 from motor_dados import carregar_mais_recente, carregar_os_encerradas
@@ -27,7 +34,68 @@ else:
     data_cron = "Aguardando sincronização..."
 
 # =====================================================================
-# 1. CONFIGURAÇÃO DA PÁGINA
+# 1. FUNÇÃO EXCLUSIVA DE GERAÇÃO DE PDF COMPACTO (VIGIOSP)
+# =====================================================================
+def gerar_pdf_relatorio(df):
+    buffer = BytesIO()
+    # Configura a página em formato Paisagem (landscape) para acomodar todas as colunas
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=landscape(letter), 
+        rightMargin=25, 
+        leftMargin=25, 
+        topMargin=25, 
+        bottomMargin=25
+    )
+    story = []
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#154899'), spaceAfter=6)
+    subtitle_style = ParagraphStyle('DocSub', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#32A347'), spaceAfter=15)
+    header_style = ParagraphStyle('TableHeader', parent=styles['Normal'], fontSize=9, fontName='Helvetica-Bold', textColor=colors.white, alignment=1)
+    cell_style = ParagraphStyle('TableCell', parent=styles['Normal'], fontSize=8, leading=10, alignment=0)
+    
+    # Cabeçalho do Documento PDF
+    story.append(Paragraph("<b>RELATÓRIO CONSOLIDADO DE MANUTENÇÃO PROGRAMADA</b>", title_style))
+    story.append(Paragraph(f"Documento de Evidência para Auditoria Sanitária | HU-UNIVASF<br>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
+    story.append(Spacer(1, 5))
+    
+    # Montagem dos cabeçalhos da tabela no PDF
+    headers_traduzidos = ["Nº O.S.", "Equipamento", "Nº Série", "Serviço", "Situação Atual", "Abertura / Prevista", "Conclusão Real"]
+    headers_pdf = [Paragraph(f"<b>{h}</b>", header_style) for h in headers_traduzidos]
+    dados_tabela = [headers_pdf]
+    
+    # Preenche as linhas convertendo textos para parágrafos válidos
+    for _, row in df.iterrows():
+        dados_tabela.append([
+            Paragraph(str(row['O.S.']), cell_style),
+            Paragraph(str(row['DESCRIÇÃO']), cell_style),
+            Paragraph(str(row['N.º SÉRIE']), cell_style),
+            Paragraph(str(row['Serviço']), cell_style),
+            Paragraph(str(row['Status']), cell_style),
+            Paragraph(str(row['Abertura / Prevista']), cell_style),
+            Paragraph(str(row['Conclusão Real']), cell_style)
+        ])
+    
+    # Definição milimétrica das larguras de coluna (total ~742pt úteis)
+    t = Table(dados_tabela, colWidths=[65, 172, 85, 105, 125, 95, 95])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#154899')),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d0d0d0')),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f7f9fa')]),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    
+    story.append(t)
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# =====================================================================
+# 2. CONFIGURAÇÃO DA PÁGINA STREAMLIT
 # =====================================================================
 st.set_page_config(
     page_title="Calendário | Conecta",
@@ -36,35 +104,24 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# =====================================================================
-# 2. IDENTIDADE VISUAL E IMPORTAÇÃO (CSS)
-# =====================================================================
+# Identidade Visual (CSS)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;800&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0');
-
     html, body, [class*="css"], [class*="st-"]  { font-family: 'Montserrat', sans-serif !important; }
     span[data-testid="stIconMaterial"] { font-family: "Material Symbols Rounded" !important; }
-
     h1 { color: #154899 !important; font-weight: 800 !important; margin-bottom: 0px; padding-bottom: 5px; margin-top: -10px; }
     h2, h3 { color: #32A347 !important; font-weight: 700 !important; }
     hr { border-top: 2px solid #32A347; margin-top: 0px; }
     [data-testid="stSidebar"] { background-color: #f8f9fa; }
     .block-container { padding-top: 2rem !important; }
-    
-    .logo-container {
-        display: flex; align-items: center; justify-content: flex-end;
-        height: 100%; padding-top: 15px;
-    }
+    .logo-container { display: flex; align-items: center; justify-content: flex-end; height: 100%; padding-top: 15px; }
     </style>
 """, unsafe_allow_html=True)
 
-# =====================================================================
-# 3. CABEÇALHO PADRÃO
-# =====================================================================
+# Cabeçalho Padrão
 col_titulo, col_espaco, col_logo1, col_logo2 = st.columns([5.5, 1.5, 1.5, 1.5])
-
 with col_titulo:
     st.markdown("<h1 style='display:flex; align-items:center; gap:12px;'><span class='material-symbols-rounded' style='font-size: 40px;'>calendar_month</span> Manutenção Programada</h1>", unsafe_allow_html=True)
     st.markdown("**Gestão, Acompanhamento e Auditoria de EMH | HU-UNIVASF**")
@@ -84,7 +141,7 @@ with col_logo2:
 st.markdown("---")
 
 # =====================================================================
-# 4. CARREGAMENTO DOS DADOS (AGENDAMENTO + HISTÓRICO + INVENTÁRIO + PENDENTES)
+# 3. CARREGAMENTO DOS DADOS GLOBAIS
 # =====================================================================
 @st.cache_data(ttl=600)
 def carregar_dados_agenda(caminho_arquivo):
@@ -125,9 +182,7 @@ if not df_agenda.empty:
     df_agenda['Status'] = df_agenda.apply(calcular_status, axis=1)
     df_agenda = df_agenda[df_agenda['Status'] != 'CANCELADO']
 
-# =====================================================================
-# 5. ESTRUTURA DE ABAS
-# =====================================================================
+# Abas
 tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria VIGIOSP"])
 
 # ---------------------------------------------------------------------
@@ -135,7 +190,6 @@ tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 A
 # ---------------------------------------------------------------------
 with tab_calendario:
     st.info(f"🕒 **Última Atualização da Base:** {data_cron}")
-    
     status_opcoes = ["NO PRAZO", "ATRASADO", "EXECUTADO"]
     status_selecionados = st.multiselect("Filtrar Visão do Calendário por Status:", options=status_opcoes, default=["NO PRAZO", "ATRASADO"])
     
@@ -148,7 +202,6 @@ with tab_calendario:
         st.markdown(f"<div style='display:flex; align-items:flex-start; gap:8px; margin-bottom: 12px; font-size: 15px;'><span class='material-symbols-rounded' style='color:#32A347; font-size:20px; margin-top: 2px;'>vital_signs</span> <div><b>Equipamento:</b><br>{props.get('equipamento')}</div></div>", unsafe_allow_html=True)
         st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 15px; font-size: 15px;'><span class='material-symbols-rounded' style='color:#32A347; font-size:20px;'>sell</span> <b>Marca:</b> {props.get('marca')}</div>", unsafe_allow_html=True)
         st.markdown("<hr style='margin: 10px 0px;'>", unsafe_allow_html=True)
-        
         col1, col2 = st.columns(2)
         with col1:
             st.markdown(f"<div style='display:flex; align-items:center; gap:8px; margin-bottom: 10px; font-size: 14px;'><span class='material-symbols-rounded' style='color:#154899; font-size:18px;'>event</span> <b>Data:</b> {evento.get('start')[:10]}</div>", unsafe_allow_html=True)
@@ -169,10 +222,7 @@ with tab_calendario:
         equipamento = str(row['Tipo Equipamento'])
         codigo = str(row['ID']).split('|')[0] if pd.notna(row.get('ID')) else str(row.get('N° Série', 'S/N'))
         status_atual = row.get('Status', 'NO PRAZO')
-
-        if status_atual == 'EXECUTADO': cor_evento = '#A6ACAF' 
-        elif status_atual == 'ATRASADO': cor_evento = '#E74C3C' 
-        else: cor_evento = cores_servicos.get(tipo_servico, '#154899') 
+        cor_evento = '#A6ACAF' if status_atual == 'EXECUTADO' else ('#E74C3C' if status_atual == 'ATRASADO' else cores_servicos.get(tipo_servico, '#154899'))
         
         eventos_calendario.append({
             "title": f"[{codigo}] {tipo_servico}", "start": data, "color": cor_evento,
@@ -192,8 +242,7 @@ with tab_calendario:
         if calendario_gerado.get("eventClick"):
             evento_clicado = calendario_gerado["eventClick"]["event"]
             modal_detalhes(evento_clicado)
-    else:
-        st.info("Nenhuma manutenção encontrada para os filtros selecionados.")
+    else: st.info("Nenhuma manutenção encontrada.")
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("<h3 style='display:flex; align-items:center; gap:8px;'><span class='material-symbols-rounded'>list_alt</span> Lista Detalhada de Serviços</h3>", unsafe_allow_html=True)
@@ -203,32 +252,28 @@ with tab_calendario:
 
 
 # ---------------------------------------------------------------------
-# ABA 2: AUDITORIA VIGIOSP (GANTT COM FILTROS COMPLETOS RETORNADOS)
+# ABA 2: AUDITORIA VIGIOSP (GANTT + EXPORTADOR COMPLETO EM PDF)
 # ---------------------------------------------------------------------
 with tab_auditoria:
-    st.markdown("Filtre o equipamento para rastrear as manutenções já executadas, as que estão em execução ativa e as próximas projetadas.")
+    st.markdown("Rastreie as manutenções programadas inserindo diretamente os números de série ou patrimônios da lista da auditoria.")
     
     with st.container(border=True):
-        c_busca1, c_busca2 = st.columns([1.5, 1.5])
+        # VOLTA DO SELETOR DE EQUIPAMENTOS MULTISELECT
+        c_b1, c_busca_sn = st.columns([1.5, 1.5])
         
-        # Consolida a lista de equipamentos para a caixinha de busca voltar
-        eq_disp = set()
-        c_desc_enc = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if not df_enc.empty and c in df_enc.columns), None)
-        if c_desc_enc: eq_disp.update(df_enc[c_desc_enc].dropna().unique())
+        # Consolida tipos de equipamento
+        tipos_equip = set()
+        if not df_enc.empty and 'TIPO EQUIP.' in df_enc.columns: tipos_equip.update(df_enc['TIPO EQUIP.'].dropna().unique())
+        if not df_agenda.empty and 'Tipo Equipamento' in df_agenda.columns: tipos_equip.update(df_agenda['Tipo Equipamento'].dropna().unique())
         
-        c_desc_ag = next((c for c in ['Tipo Equipamento', 'Tipo Equip.'] if not df_agenda.empty and c in df_agenda.columns), None)
-        if c_desc_ag: eq_disp.update(df_agenda[c_desc_ag].dropna().unique())
-        
-        # A CAIXINHA DE BUSCA VOLTOU SUPREMA AQUI:
-        filtro_aud_eq = c_busca1.multiselect("Filtrar por Tipo de Equipamento:", sorted(list(eq_disp)), placeholder="Busque os tipos alvo da auditoria...")
-        filtro_aud_sn = c_busca2.text_input("Número(s) de Série ou Patrimônio (Separe por vírgula):", placeholder="Ex: 59885V/00, HU-00923, 9876...")
+        filtro_aud_eq = c_b1.multiselect("Filtrar por Tipo de Equipamento:", sorted(list(tipos_equip)), placeholder="Todos os tipos alvo da busca...")
+        filtro_aud_sn = c_busca_sn.text_input("Número(s) de Série ou Patrimônio (Separe por vírgula):", placeholder="Cole aqui a lista de séries ou patrimônios... Ex: 59885V/00, HU-00923")
 
-    if filtro_aud_eq or filtro_aud_sn:
+    if filtro_aud_sn or filtro_aud_eq:
         lista_auditoria = []
         padrao_sn = None
         
         if filtro_aud_sn:
-            import re
             termos_iniciais = [s.strip() for s in filtro_aud_sn.split(',') if s.strip()]
             termos_expandidos = set(termos_iniciais)
             
@@ -246,10 +291,9 @@ with tab_auditoria:
             termos_expandidos.discard('N/I')
             termos_expandidos.discard('None')
             
-            if termos_expandidos:
-                padrao_sn = '|'.join([re.escape(t) for t in termos_expandidos])
-        
-        # 1. VIA DO PASSADO: O.S. Encerradas (Filtrado estritamente por Programadas)
+            if termos_expandidos: padrao_sn = '|'.join([re.escape(t) for t in termos_expandidos])
+    
+        # 1. Puxando o Passado (O.S. Encerradas)
         if not df_enc.empty:
             df_enc_aud = df_enc.copy()
             c_os = next((c for c in ['O.S.', 'OS', 'N.º O.S.'] if c in df_enc_aud.columns), None)
@@ -257,9 +301,9 @@ with tab_auditoria:
             c_ab = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_enc_aud.columns), None)
             c_en = next((c for c in ['ENCERRAMENTO', 'DATA ENCERRAMENTO'] if c in df_enc_aud.columns), None)
             c_cl = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_enc_aud.columns), None)
+            c_desc_enc = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if c in df_enc_aud.columns), None)
 
             if c_desc_enc and filtro_aud_eq: df_enc_aud = df_enc_aud[df_enc_aud[c_desc_enc].isin(filtro_aud_eq)]
-            
             if padrao_sn: 
                 mask_sn = df_enc_aud[c_sn_enc].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_sn_enc else False
                 c_id_enc = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_enc_aud.columns), None)
@@ -283,11 +327,9 @@ with tab_auditoria:
             c_ab_p = next((c for c in ['ABERTURA', 'DATA ABERTURA'] if c in df_p_aud.columns), None)
             c_cl_p = next((c for c in ['CLASSE', 'TIPO MANUTENÇÃO'] if c in df_p_aud.columns), None)
             c_est_p = next((c for c in ['ESTADO', 'STATUS', 'SITUAÇÃO'] if c in df_p_aud.columns), None)
-            
             c_desc_p = next((c for c in ['TIPO EQUIP.', 'TIPO EQUIPAMENTO', 'DESCRIÇÃO', 'EQUIPAMENTO'] if c in df_p_aud.columns), None)
 
             if c_desc_p and filtro_aud_eq: df_p_aud = df_p_aud[df_p_aud[c_desc_p].isin(filtro_aud_eq)]
-            
             if padrao_sn: 
                 mask_sn = df_p_aud[c_sn_p].astype(str).str.contains(padrao_sn, case=False, na=False, regex=True) if c_sn_p else False
                 c_id_p = next((c for c in ['IDENTIFICADOR', 'ID', 'PATRIMÔNIO', 'PATRIMONIO'] if c in df_p_aud.columns), None)
@@ -301,12 +343,7 @@ with tab_auditoria:
                 df_p_aud = df_p_aud[[c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p, c_est_p]].copy() if c_est_p else df_p_aud[[c_os_p, c_desc_p, c_sn_p, c_ab_p, c_cl_p]].copy()
                 df_p_aud.rename(columns={c_os_p: 'O.S.', c_desc_p: 'DESCRIÇÃO', c_sn_p: 'N.º SÉRIE', c_ab_p: 'Data_Inicio', c_cl_p: 'Serviço'}, inplace=True)
                 df_p_aud['Data_Fim'] = pd.Timestamp(datetime.today().date())
-                
-                if c_est_p:
-                    df_p_aud['Status'] = '⚙️ Em Execução (' + df_p_aud[c_est_p].astype(str).str.strip().str.upper() + ')'
-                else:
-                    df_p_aud['Status'] = '⚙️ Em Execução'
-                    
+                df_p_aud['Status'] = '⚙️ Em Execução (' + df_p_aud[c_est_p].astype(str).str.strip().str.upper() + ')' if c_est_p else '⚙️ Em Execução'
                 df_p_aud.drop(columns=[c_est_p], inplace=True, errors='ignore')
                 lista_auditoria.append(df_p_aud)
 
@@ -315,9 +352,9 @@ with tab_auditoria:
             df_ag_aud = df_agenda.copy()
             c_sn_ag = next((c for c in ['N° Série', 'Nº Série', 'N. Série', 'N.Série'] if c in df_ag_aud.columns), None)
             c_id_ag = next((c for c in ['ID', 'Identificador', 'Patrimônio', 'Patrimonio'] if c in df_ag_aud.columns), None)
+            c_desc_ag = next((c for c in ['Tipo Equipamento', 'Tipo Equip.'] if c in df_ag_aud.columns), None)
             
             if c_desc_ag and filtro_aud_eq: df_ag_aud = df_ag_aud[df_ag_aud[c_desc_ag].isin(filtro_aud_eq)]
-            
             if c_sn_ag: df_ag_aud['N.º SÉRIE'] = df_ag_aud[c_sn_ag].fillna('N/I').astype(str).str.strip()
             else: df_ag_aud['N.º SÉRIE'] = 'N/I'
                 
@@ -339,56 +376,61 @@ with tab_auditoria:
                 df_ag_aud['Status'] = np.where(df_ag_aud['Status'] == 'ATRASADO', '⚠️ Atrasado', '⏳ Programado')
                 lista_auditoria.append(df_ag_aud)
 
-        # 4. Consolidação Geral e Plotagem (GANTT PADRONIZADO EM 15 DIAS)
+        # 4. Consolidação Geral e Imparabilidade Visual
         if lista_auditoria:
             df_auditoria = pd.concat(lista_auditoria, ignore_index=True)
             df_auditoria['Data_Inicio'] = pd.to_datetime(df_auditoria['Data_Inicio'], errors='coerce').dt.normalize()
             df_auditoria['Data_Fim'] = pd.to_datetime(df_auditoria['Data_Fim'], errors='coerce').dt.normalize()
             df_auditoria = df_auditoria.dropna(subset=['Data_Inicio']).sort_values('Data_Inicio', ascending=False)
             
-            # VOLTA DO GANTT COM LARGURA PADRÃO EM BLOCO FIXO:
             df_auditoria['Data_Fim_Vis'] = df_auditoria['Data_Inicio'] + pd.Timedelta(days=15)
-            
             df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
             df_auditoria['Status_Legenda'] = df_auditoria['Status'].apply(lambda x: '⚙️ Em Execução' if 'Em Execução' in str(x) else x)
 
+            # RENDERIZAÇÃO DO GANTT SEM O BLOCÃO CINZA DO RODAPÉ
             with st.container(border=True):
                 st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
-                
                 cores_status = {'✔️ Executado': '#70ad47', '⏳ Programado': '#154899', '⚠️ Atrasado': '#c00000', '⚙️ Em Execução': '#FF8C00'}
                 
                 fig_gantt = px.timeline(
-                    df_auditoria, x_start="Data_Inicio", x_end="Data_Fim_Vis", y="Equip_ID", color="Status_Legenda",
-                    color_discrete_map=cores_status, hover_name="O.S.", hover_data={"Serviço": True, "Status": True, "Status_Legenda": False, "Data_Fim_Vis": False}
+                    df_auditoria, x_start="Data_Inicio", x_end="Data_Fim_Vis", y="Equip_ID", color="Status_Legenda", color_discrete_map=cores_status, hover_name="O.S.", hover_data=["Serviço"]
                 )
                 fig_gantt.update_yaxes(autorange="reversed")
-                
-                # MANTÉM O DUPLICADOR CINZA DESLIGADO (REMOÇÃO ABSOLUTA DO BLOCÃO):
-                fig_gantt.update_xaxes(rangeslider_visible=False)
-                
+                fig_gantt.update_xaxes(rangeslider_visible=False) # Trava definitiva anti-poluição
                 fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 60), margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_gantt, use_container_width=True)
 
+            # TABELA DE DADOS COMPLETA PROCESSADA
+            df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
+            df_print['Abertura / Prevista'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
+            df_print['Conclusão Real'] = np.select(
+                [df_print['O.S.'] == 'AGENDADO', df_print['Status'].str.contains('Execução')],
+                ['-', 'EM ABERTO'],
+                default=df_print['Data_Fim'].dt.strftime('%d/%m/%Y')
+            )
+            df_print.drop(columns=['Data_Fim', 'Data_Inicio'], inplace=True)
+            df_print['Conclusão Real'] = df_print['Conclusão Real'].replace({'NaT': '-', 'nan': '-'})
+            
+            # Reorganiza a ordem das colunas antes do envio para a tela e para o PDF
+            df_print = df_print[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Abertura / Prevista', 'Conclusão Real']]
+
+            # ÁREA EXCLUSIVA DE IMPRESSÃO SANITÁRIA
             with st.container(border=True):
-                st.markdown("##### 📋 Relatório Consolidado de Engenharia Clínica")
-                st.caption("Pressione **Ctrl + P** e escolha 'Salvar como PDF' para exportar esta visão combinada.")
+                st.markdown("##### 📋 Documentação de Rastreabilidade Operacional")
                 
-                df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
-                df_print['Data_Inicio'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
-                
-                df_print['Conclusão Real'] = np.select(
-                    [df_print['O.S.'] == 'AGENDADO', df_print['Status'].str.contains('Execução')],
-                    ['-', 'EM ABERTO'],
-                    default=df_print['Data_Fim'].dt.strftime('%d/%m/%Y')
+                # BOTÃO MAGNÍFICO DE COMPILAÇÃO E DOWNLOAD DO RELATÓRIO PDF REAL
+                pdf_gerado = gerar_pdf_relatorio(df_print)
+                st.download_button(
+                    label="📥 Baixar Relatório Consolidado Oficial (PDF)",
+                    data=pdf_gerado,
+                    file_name=f"Relatorio_Auditoria_VIGIOSP_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf"
                 )
+                st.write("")
                 
-                df_print.drop(columns=['Data_Fim'], inplace=True)
-                df_print.rename(columns={'Data_Inicio': 'Abertura / Prevista'}, inplace=True)
-                df_print['Conclusão Real'] = df_print['Conclusão Real'].replace({'NaT': '-', 'nan': '-'})
-                
-                st.dataframe(df_print, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Nenhum histórico encontrado para os parâmetros informados.")
-    else:
-        st.info("👈 Selecione o equipamento ou cole a lista de séries/patrimônios acima para gerar o relatório de auditoria.")
+                # ALTERAÇÃO CHAVE: Usamos st.table() para fins de Auditoria física
+                # st.table força o navegador a desenhar 100% das linhas na página web sem cortar nada caso use Ctrl+P!
+                st.table(df_print)
+        else: st.warning("Nenhum histórico encontrado para os parâmetros informados.")
+    else: st.info("👈 Selecione o equipamento ou cole a lista de séries/patrimônios acima para gerar o relatório de auditoria.")
