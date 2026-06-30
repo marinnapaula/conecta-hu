@@ -12,4 +12,4 @@ selenium
 webdriver-manager
 xlrd>=2.0.1
 reportlab
-kaleido==0.1.0.post1
+kaleido>=0.1.0.post1
