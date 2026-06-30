@@ -57,14 +57,19 @@ def gerar_pdf_relatorio(df, fig_grafico=None):
     # INSERE A FOTO DO GRÁFICO NO PDF
     if fig_grafico is not None:
         try:
-            # Captura o gráfico Plotly como imagem PNG usando Kaleido
+            # Tenta converter o Plotly para Imagem
             img_bytes = fig_grafico.to_image(format="png", engine="kaleido", width=1100, height=450)
             img_buffer = BytesIO(img_bytes)
+            img_buffer.seek(0) # Força a leitura desde o início do arquivo em memória
+            
             img_pdf = RLImage(img_buffer, width=720, height=280) # Ajustado para caber na página A4 Paisagem
             story.append(img_pdf)
             story.append(Spacer(1, 15))
         except Exception as e:
-            story.append(Paragraph("<i>(Aviso: Para gerar o gráfico no PDF, a biblioteca 'kaleido' deve estar no requirements.txt)</i>", cell_style))
+            # Se falhar, agora ele não esconde mais. Vai carimbar o erro exato no PDF!
+            erro_limpo = str(e).replace('<', '').replace('>', '')
+            alerta = f"<font color='red'><b>Aviso: Não foi possível anexar o gráfico (Erro: {erro_limpo}). Verifique o kaleido==0.1.0.post1 no requirements.txt</b></font>"
+            story.append(Paragraph(alerta, cell_style))
             story.append(Spacer(1, 10))
     
     headers_traduzidos = ["Nº O.S.", "Equipamento", "Nº Série", "Serviço", "Situação Atual", "Abertura / Prevista", "Conclusão Real"]
@@ -177,7 +182,7 @@ if not df_agenda.empty:
 tab_calendario, tab_auditoria = st.tabs(["📅 Calendário Operacional", "📋 Auditoria VIGIOSP"])
 
 # ---------------------------------------------------------------------
-# ABA 1: CALENDÁRIO OPERACIONAL (Mantido igual)
+# ABA 1: CALENDÁRIO OPERACIONAL
 # ---------------------------------------------------------------------
 with tab_calendario:
     st.info(f"🕒 **Última Atualização da Base:** {data_cron}")
@@ -353,41 +358,29 @@ with tab_auditoria:
             df_auditoria['N.º SÉRIE'] = df_auditoria['N.º SÉRIE'].astype(str).str.replace(r'^nan$|^None$', 'N/I', regex=True)
             df_auditoria['Equip_ID'] = df_auditoria['DESCRIÇÃO'] + " (SN: " + df_auditoria['N.º SÉRIE'] + ")"
 
-            # =======================================================
-            # 5. OS NOVOS FILTROS E ORDENAÇÃO EXCLUSIVOS DA AUDITORIA
-            # =======================================================
+            # Filtros Extras
             with st.container(border=True):
                 st.markdown("##### 🛠️ Controles de Exibição do Relatório")
                 col_f1, col_f2, col_f3 = st.columns(3)
-                
-                # Filtro de Status
                 status_disp = df_auditoria['Status_Legenda'].unique().tolist()
                 filtro_status = col_f1.multiselect("Filtrar por Situação:", options=status_disp, default=status_disp)
                 
-                # Filtro de Período (Intervalo de Datas)
                 min_date = df_auditoria['Data_Inicio'].min().date() if not df_auditoria.empty else datetime.today().date()
                 max_date = df_auditoria['Data_Inicio'].max().date() if not df_auditoria.empty else datetime.today().date()
                 filtro_periodo = col_f2.date_input("Filtrar por Período de Abertura:", value=(min_date, max_date), min_value=min_date, max_value=max_date, format="DD/MM/YYYY")
-                
-                # Opção de Ordenação da Tabela/Gráfico
                 opcoes_ord = ["Data (Mais recente primeiro)", "Data (Mais antiga primeiro)", "Equipamento (A-Z)", "Situação Atual"]
                 ordenacao = col_f3.selectbox("Ordenar Tabela e Gráfico por:", opcoes_ord)
 
-            # Aplica os Filtros no DataFrame da Auditoria
-            if filtro_status:
-                df_auditoria = df_auditoria[df_auditoria['Status_Legenda'].isin(filtro_status)]
-            
+            if filtro_status: df_auditoria = df_auditoria[df_auditoria['Status_Legenda'].isin(filtro_status)]
             if len(filtro_periodo) == 2:
                 start_date, end_date = filtro_periodo
                 df_auditoria = df_auditoria[(df_auditoria['Data_Inicio'].dt.date >= start_date) & (df_auditoria['Data_Inicio'].dt.date <= end_date)]
             
-            # Aplica a Ordenação
             if ordenacao == "Data (Mais recente primeiro)": df_auditoria = df_auditoria.sort_values('Data_Inicio', ascending=False)
             elif ordenacao == "Data (Mais antiga primeiro)": df_auditoria = df_auditoria.sort_values('Data_Inicio', ascending=True)
             elif ordenacao == "Equipamento (A-Z)": df_auditoria = df_auditoria.sort_values(['DESCRIÇÃO', 'Data_Inicio'], ascending=[True, False])
             elif ordenacao == "Situação Atual": df_auditoria = df_auditoria.sort_values(['Status_Legenda', 'Data_Inicio'], ascending=[True, False])
 
-            # RENDERIZAÇÃO DO GANTT E DO PDF SE AINDA HOUVER DADOS
             if not df_auditoria.empty:
                 with st.container(border=True):
                     st.markdown("##### ⏱️ Linha do Tempo de Intervenções (Gantt)")
@@ -401,7 +394,6 @@ with tab_auditoria:
                     fig_gantt.update_layout(height=max(350, len(df_auditoria['Equip_ID'].unique()) * 60), margin=dict(l=0, r=0, t=10, b=0))
                     st.plotly_chart(fig_gantt, use_container_width=True)
 
-                # TABELA DE DADOS COMPLETA
                 df_print = df_auditoria[['O.S.', 'DESCRIÇÃO', 'N.º SÉRIE', 'Serviço', 'Status', 'Data_Inicio', 'Data_Fim']].copy()
                 df_print['Abertura / Prevista'] = df_print['Data_Inicio'].dt.strftime('%d/%m/%Y')
                 df_print['Conclusão Real'] = np.select(
@@ -416,7 +408,6 @@ with tab_auditoria:
                 with st.container(border=True):
                     st.markdown("##### 📋 Documentação de Rastreabilidade Operacional")
                     
-                    # PASSA O GRÁFICO (fig_gantt) PARA A FUNÇÃO DO PDF BATER A FOTO
                     pdf_gerado = gerar_pdf_relatorio(df_print, fig_gantt)
                     
                     st.download_button(
